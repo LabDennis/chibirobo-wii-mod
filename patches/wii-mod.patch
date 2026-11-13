@@ -1,0 +1,5005 @@
+diff --git a/README.md b/README.md
+index 6453d912ac540784cfa5d439513dba0694e4265f..aa1c589d0164f95b030c82f1459364d060ff58be 100644
+--- a/README.md
++++ b/README.md
+@@ -97,6 +97,85 @@ ninja
+ 
+ The output DOL is written to `build/GGTE01/main.dol`, or to the folder for the version you built.
+ 
+-Mods of the Japanese Wii release (R24J01) live in [chibirobo-wii-mod](https://github.com/LabDennis/chibirobo-wii-mod).
++### Wii mods
++
++Two options build a mod of your Japanese Wii disc, alone or together:
++
++- `--gcncon`: GameCube controller support. On the first screen, the first A
++  press picks the controls: A on a GameCube controller in port 1 plays with the
++  GameCube controller alone, and the game stops asking for the Wii Remote; A on
++  the Wii Remote plays as the Wii release does, pointer, motion and speaker
++  included. The game already maps the GameCube buttons; the release only left
++  them switched off.
++- `--langpack <locale>`: the game's text in another language (see below).
++
++```sh
++python3 configure.py --version R24J01 --gcncon --langpack en-US
++ninja
++```
++
++Open `build/wii-en-US-gcncon/game.json` in Dolphin (the folder is named after the
++options: `wii-gcncon`, `wii-en-US`, …). Dolphin applies the mod to your original
++disc image; on a Wii, Riivolution does the same with the folder's
++`riivolution.xml` and `main.dol`.
++
++Add `--iso` to also get a disc image with the mod, for example
++`build/wii-en-US-gcncon/wii-en-US-gcncon.iso`. This needs
++[Wiimms ISO Tools](https://wit.wiimm.de) (`wit`, GPL-2.0) on your PATH, in
++`~/.local/opt/wit/bin/wit`, or passed with `--wit`. The build extracts your disc
++once, puts the mod's `main.dol` and files into a copy, and has `wit` write and
++encrypt the image. Ticket and TMD are fake-signed: Dolphin plays it as is; a Wii
++needs a USB loader with patched IOS.
++
++With `--iso`, `--fanpatch <folder>` also puts a translation patch made for the
++retail disc into the image: the folder Riivolution loads, with the patch's
++`main.dol` and its file folders. Like Riivolution, its files replace the disc's
++files of the same name, whatever the case of their names. Its changes to
++`main.dol` are found by their surrounding data and copied to the same data in
++the mod's `main.dol`; this suits a patch that only rewrites text, as the
++V0101 English patch does. The image is then named `…-fanpatch.iso`. The build
++stops if a change has no unique place in the mod.
++
++Use `--langpack global` for Japanese, English, German, French, Spanish and
++Italian in one build. The game reads the Wii system language at startup and uses
++English for other language settings. Japanese uses the original resources.
++To lock the language, choose `en-US`, `en-GB`, `de-DE`, `fr-FR`, `es-ES` or
++`it-IT`. GameCube controller support works with either selection.
++
++```sh
++python3 configure.py --version R24J01 --langpack global
++ninja
++python3 configure.py --version R24J01 --langpack global --gcncon --iso
++ninja
++```
++
++Global builds require `tools/wii_lang_data.py` and the disc images in
++`orig/R24J01`, `orig/GGTE01` and `orig/GGTP01`. Ninja generates the assets in
++`build/wii-lang/files/lang/` once for both controller configurations. It installs
++the language directories in `build/wii-global/files/lang/` or
++`build/wii-global-gcncon/files/lang/`. These generated directories are replaced
++when the inputs change. Riivolution and the optional ISO use the same files.
++The disc images are named `wii-global.iso` and `wii-global-gcncon.iso` in their
++respective output folders. Available translations depend on the disc data.
++The game falls back to the original file when a language override is missing.
++
++Runtime interface and PC text use the GameCube string tables resident in the
++Wii executable. Wii-specific translations and the title and save banner lines
++are in `mods/wii-localization/`.
++These mods share the Japanese title's save files. Use a separate Dolphin user
++directory to keep a development save. Retail progress is measured against `R24J01`.
++
++To import actor, costume and stage names, extract the desired language's
++`globals.bin` from your GameCube disc's `qp.bin`. Pass that file and the
++original Wii file to the importer. For an English build:
++
++```sh
++python3 tools/wii_stage_names.py path/to/gc/globals.bin orig/R24J01/files/bin/globals.bin build/wii-en-US/files/bin/globals.bin
++```
++
++The importer lists skipped IDs and keeps their Japanese names. It accepts
++printable ASCII by default. Add `--fold-cp1252` to convert supported Western
++accents to ASCII. Object collisions, stage descriptions and event scripts
++come from the Wii file.
+ 
+ [Credits and license notices](NOTICE)
+diff --git a/configure.py b/configure.py
+index 2746edab77ad7607f3efddfda9f44a8dcfc2b3a3..f00b2e67a70ae787f3cd4b487ff6a8259c057f28 100644
+--- a/configure.py
++++ b/configure.py
+@@ -13,9 +13,11 @@
+ ###
+ 
+ import argparse
++import shlex
++import shutil
+ import sys
+ from pathlib import Path
+-from typing import Any, Dict, List
++from typing import Any, Dict, List, Optional
+ 
+ from tools.project import (
+     Object,
+@@ -58,6 +60,38 @@ parser.add_argument(
+     default=Path("build"),
+     help="base build directory (default: build)",
+ )
++parser.add_argument(
++    "--langpack",
++    "--wii-locale",
++    dest="wii_locale",
++    choices=("global", "en-US", "en-GB", "de-DE", "fr-FR", "es-ES", "it-IT"),
++    help="Wii mod: the game's text in this language",
++)
++parser.add_argument(
++    "--gcncon",
++    "--wii-gamecube-pad",
++    dest="wii_gamecube_pad",
++    action="store_true",
++    help="Wii mod: the first A press picks the controls, GameCube controller or Wii Remote with its extras",
++)
++parser.add_argument(
++    "--iso",
++    action="store_true",
++    help="Wii mod: also write a disc image with the mod (needs Wiimms ISO Tools, wit)",
++)
++parser.add_argument(
++    "--fanpatch",
++    metavar="FOLDER",
++    type=Path,
++    help="Wii mod with --iso: put a translation patch for the retail disc into the image "
++    "(the folder with its main.dol and file folders, as Riivolution loads them)",
++)
++parser.add_argument(
++    "--wit",
++    metavar="BINARY",
++    type=Path,
++    help="path to wit for --iso (default: wit on PATH, or ~/.local/opt/wit/bin/wit)",
++)
+ parser.add_argument(
+     "--binutils",
+     metavar="BINARY",
+@@ -141,6 +175,27 @@ config = ProjectConfig()
+ config.version = str(args.version)
+ version_num = VERSIONS.index(config.version)
+ wii = config.version == "R24J01"
++wii_mod = bool(args.wii_locale or args.wii_gamecube_pad)
++if wii_mod and not wii:
++    parser.error("--langpack and --gcncon require --version R24J01")
++if args.wii_locale and not Path("tools/wii_lang_data.py").is_file():
++    parser.error("--langpack requires tools/wii_lang_data.py (Wii language data builder)")
++if wii_mod and args.mode == "progress":
++    parser.error("progress is measured against retail releases")
++wit = None
++if args.wit and not args.iso:
++    parser.error("--wit is only used with --iso")
++if args.fanpatch and not args.iso:
++    parser.error("--fanpatch is only used with --iso")
++if args.fanpatch and not (args.fanpatch / "main.dol").is_file():
++    parser.error(f"--fanpatch needs the patch folder that holds its main.dol; there is none in {args.fanpatch}")
++if args.iso:
++    if not wii_mod:
++        parser.error("--iso builds a mod's disc image: add --gcncon and/or --langpack")
++    default_wit = Path.home() / ".local/opt/wit/bin/wit"
++    wit = args.wit or (Path(shutil.which("wit")) if shutil.which("wit") else default_wit)
++    if not wit.is_file():
++        parser.error(f"--iso needs Wiimms ISO Tools: install wit (https://wit.wiimm.de) or pass --wit; tried {wit}")
+ 
+ # Apply arguments
+ config.build_dir = args.build_dir
+@@ -151,7 +206,7 @@ config.compilers_path = args.compilers
+ # The US and Japanese GameCube linkers used ASCII '0' for padding.
+ config.fill_padding = config.version in ("GGTE01", "GGTJ01_01")
+ config.generate_map = args.map or not wii
+-config.non_matching = args.non_matching
++config.non_matching = args.non_matching or wii_mod
+ config.sjiswrap_path = args.sjiswrap
+ config.ninja_path = args.ninja
+ config.progress = args.progress
+@@ -173,6 +228,30 @@ config.wibo_tag = "1.0.3"
+ # Project
+ config.config_path = Path("config") / config.version / "config.yml"
+ config.check_sha_path = Path("config") / config.version / "build.sha1"
++if wii_mod:
++    from tools.wii_locale import LANGUAGES, disc_image, write_localization, write_mod
++
++    parts = [args.wii_locale] if args.wii_locale else []
++    if args.wii_gamecube_pad:
++        parts.append("gcncon")
++    config.output_name = "wii-" + "-".join(parts)
++    config.check_sha_path = None
++    config.progress = False
++    translations = Path("mods/wii-localization/interface.json")
++    config.reconfig_deps = [translations, translations.with_name("text_map.json"),
++                            translations.with_name("wii_text.json"), Path("tools/wii_locale.py")]
++    features = [f"{args.wii_locale} localization"] if args.wii_locale else []
++    if args.wii_gamecube_pad:
++        features.append("GameCube controller")
++    try:
++        base = wii_disc = disc_image(Path("orig/R24J01"))
++        if args.iso and wii_disc.name == "main.dol":
++            parser.error("--iso needs a disc image (ISO, RVZ, ...) in orig/R24J01, not an extracted partition")
++        if args.wii_locale:
++            write_localization(translations, args.wii_locale, config.out_path())
++        write_mod(config.out_path(), base, ", ".join(features))
++    except ValueError as error:
++        parser.error(str(error))
+ config.asflags = [
+     "-mgekko",
+     "--strip-local-absolute",
+@@ -190,9 +269,6 @@ if args.map:
+     config.ldflags.append("-mapunused")
+     # config.ldflags.append("-listclosure") # For Wii linkers
+ 
+-# Use for any additional files that should cause a re-configure when modified
+-config.reconfig_deps = []
+-
+ # Optional numeric ID for decomp.me preset
+ # Can be overridden in libraries or objects
+ config.scratch_preset_id = None
+@@ -1167,6 +1243,11 @@ if wii:
+     ]
+     if args.warn:
+         wii_cflags.append(f"-W {args.warn}")
++    if args.wii_locale:
++        wii_cflags.extend([("-DWII_LANGUAGE_SYSTEM" if args.wii_locale == "global" else
++                           f"-DWII_LANGUAGE={LANGUAGES.index(args.wii_locale[:2]) + 1}"), f"-i {config.out_path().as_posix()}/include"])
++    if args.wii_gamecube_pad:
++        wii_cflags.append("-DWII_GAMECUBE_PAD")
+     wii_cflags.append("-DDEBUG=1" if args.debug else "-DNDEBUG=1")
+     config.libs = [
+         {
+@@ -1181,11 +1262,11 @@ if wii:
+                 Object(Equivalent, "game/roboeyeslens.cpp"),
+                 Object(Equivalent, "game/stage_data.cpp", extra_cflags=["-Cpp_exceptions on"]),
+                 Object(Equivalent, "game/wii/atcmenuselection.cpp"),
+-                Object(NonMatching, "game/wii/homemenu.cpp", extra_cflags=["-Cpp_exceptions on"]),
++                Object(bool(args.wii_locale), "game/wii/homemenu.cpp", extra_cflags=["-Cpp_exceptions on"]),
+                 # its switches are binary-search trees, which only the GC compilers emit, and none of its
+                 # small functions is inlined into the callers that follow them
+-                Object(NonMatching, "game/wii/cfile.cpp", mw_version="GC/3.0a5.2", extra_cflags=["-Cpp_exceptions on", "-inline noauto"]),
+-                Object(NonMatching, "game/wii/gamemain.cpp", extra_cflags=["-Cpp_exceptions on"]),
++                Object(bool(args.wii_locale), "game/wii/cfile.cpp", mw_version="GC/3.0a5.2", extra_cflags=["-Cpp_exceptions on", "-inline noauto"]),
++                Object(bool(args.wii_locale), "game/wii/gamemain.cpp", extra_cflags=["-Cpp_exceptions on"]),
+                 Object(Equivalent, "game/wii/cpad.cpp", extra_cflags=["-Cpp_exceptions on"]),
+                 Object(Equivalent, "game/wii/cpadact.cpp", extra_cflags=["-Cpp_exceptions on"]),
+                 Object(Matching, "game/wii/nandfile.cpp", extra_cflags=["-Cpp_exceptions on"]),
+@@ -1334,10 +1415,111 @@ def append_treemap_step(config: ProjectConfig) -> None:
+         )
+ 
+ 
++def wii_dtk(config: ProjectConfig) -> Path:
++    exe = ".exe" if is_windows() else ""
++    # the same dtk generate_build uses: a given binary, one built from a given checkout, or the downloaded one
++    if config.dtk_path is not None and config.dtk_path.is_file():
++        dtk = config.dtk_path
++    elif config.dtk_path is not None:
++        dtk = config.build_dir / "tools" / "release" / f"dtk{exe}"
++    else:
++        dtk = config.build_dir / "tools" / f"dtk{exe}"
++
++    return dtk
++
++
++def esc(path: str) -> str:  # a path on a build line
++    return path.replace("$", "$$").replace(" ", "$ ").replace(":", "$:")
++
++def arg(path: Path) -> str:  # a path in a command, quoted for the shell (Windows runs it without one)
++    quoted = f'"{path.as_posix()}"' if is_windows() else shlex.quote(path.as_posix())
++    return quoted.replace("$", "$$")
++
++def append_language_data_step(config, codes):
++    # tools/wii_lang_data.py builds every language once into build/wii-lang, for all mod variants; each
++    # variant then takes the languages it can show.
++    shared = config.build_dir / "wii-lang"
++    files = shared / "files"
++    report = files / "report.json"
++    target = config.out_path() / "files/lang"
++    dtk = wii_dtk(config)
++    try:
++        discs = [disc_image(Path("orig") / version) for version in ("R24J01", "GGTE01", "GGTP01")]
++    except ValueError as error:
++        parser.error(f"--langpack needs the Wii, US and PAL discs in orig/: {error}")
++    inputs = [dtk, *discs]
++    # The producer also detects the Japanese GC reference beside the other discs.
++    jp = Path("orig/GGTJ01_01")
++    inputs.extend(sorted(p for p in jp.glob("*") if p.suffix.lower() in (".rvz", ".iso", ".gcm")))
++    dependencies = " ".join(esc(path.as_posix()) for path in inputs)
++    with open("build.ninja", "a", encoding="utf-8") as f:
++        f.write(
++            "\nrule wii_language_data\n"
++            f"  command = $python tools/wii_lang_data.py --dtk {arg(dtk)} --wii {arg(discs[0])}"
++            f" --us {arg(discs[1])} --pal {arg(discs[2])} --work {arg(shared / 'work')} --out {arg(files)}\n"
++            "  description = Extract Wii language data\n"
++            f"build {esc(report.as_posix())}: wii_language_data tools/wii_lang_data.py | {dependencies}\n"
++            "rule wii_stage_languages\n"
++            f"  command = $python -m tools.wii_lang_install {arg(files)} \"$out\" {' '.join(codes)}\n"
++            "  description = Install Wii language files\n"
++            f"build {esc(target.as_posix())}: wii_stage_languages {esc(report.as_posix())} | tools/wii_lang_install.py\n"
++            f"default {esc(target.as_posix())}\n"
++        )
++
++
++def append_banner_step(config, disc, translations, locale):
++    out = config.out_path() / "files/opening.bnr"
++    dtk = wii_dtk(config)
++    source = disc.parent.parent / "files/opening.bnr" if disc.name == "main.dol" else disc
++    with open("build.ninja", "a", encoding="utf-8") as f:
++        f.write(
++            "\nrule wii_banner\n"
++            f"  command = $python -m tools.wii_locale {arg(disc)} {arg(dtk)} {arg(translations)} {locale} \"$out\"\n"
++            "  description = BANNER $out\n"
++            f"build {esc(out.as_posix())}: wii_banner {esc(source.as_posix())} | {esc(dtk.as_posix())}"
++            f" {esc(translations.as_posix())} tools/wii_locale.py\n"
++            f"default {esc(out.as_posix())}\n"
++        )
++
++
++def append_iso_step(config: ProjectConfig, wit: Path, disc: Path, patch: Optional[Path]) -> None:
++    # The mod's main.dol and files, put into a copy of the original disc by tools/wii_iso.py.
++    out = config.out_path()
++    image = (out / f"{config.output_name}{'-fanpatch' if patch else ''}.iso").as_posix()
++    dtk = wii_dtk(config)
++
++    with open("build.ninja", "a", encoding="utf-8") as f:
++        f.write(
++            "\n# Disc image with the mod\n"
++            "rule wii_iso\n"
++            f"  command = $python tools/wii_iso.py --dtk {arg(dtk)} --wit {arg(wit)} --disc {arg(disc)}"
++            f" --dol $in --files {arg(out / 'files')} --work {arg(out / 'iso')} --out $out"
++            + (f" --patch {arg(patch)}" if patch else "")
++            + "\n"
++            "  depfile = $out.d\n"
++            "  deps = gcc\n"
++            "  description = ISO $out\n"
++            "  pool = console\n"
++            f"build {esc(image)}: wii_iso {esc((out / 'main.dol').as_posix())} | {esc(dtk.as_posix())} {esc(disc.as_posix())}"
++            " tools/wii_iso.py"
++            + (" " + esc((out / "files/opening.bnr").as_posix()) if args.wii_locale else "")
++            + (" " + esc((out / "files/lang").as_posix()) if args.wii_locale else "") + "\n"
++            f"default {esc(image)}\n"
++        )
++
++
+ if args.mode == "configure":
+     # Write build.ninja and objdiff.json
+     generate_build(config)
+-    append_treemap_step(config)
++    if not wii_mod:
++        append_treemap_step(config)
++    if args.wii_locale:
++        codes = LANGUAGES if args.wii_locale == "global" else (args.wii_locale[:2],)
++        append_language_data_step(config, codes)
++    if args.wii_locale:
++        append_banner_step(config, wii_disc, translations, args.wii_locale)
++    if args.iso:
++        append_iso_step(config, wit, wii_disc, args.fanpatch)
+ elif args.mode == "progress":
+     # Print progress information
+     calculate_progress(config)
+diff --git a/mods/wii-localization/interface.json b/mods/wii-localization/interface.json
+new file mode 100644
+index 0000000000000000000000000000000000000000..31fe7c9dc3e2e086a88b3db807663c2ae6787bba
+--- /dev/null
++++ b/mods/wii-localization/interface.json
+@@ -0,0 +1,26 @@
++{
++  "en-US": [
++    "Chibi-Robo! (Wii)", "Chibi-Robo!", "Reach the top of the rankings!",
++    "The Wii Remote was disconnected.", "Connect the Nunchuk to the Wii Remote.", "Point the Wii Remote at the screen."
++  ],
++  "en-GB": [
++    "Chibi-Robo! (Wii)", "Chibi-Robo!", "Reach the top of the rankings!",
++    "The Wii Remote was disconnected.", "Connect the Nunchuk to the Wii Remote.", "Point the Wii Remote at the screen."
++  ],
++  "de-DE": [
++    "Chibi-Robo! (Wii)", "Chibi-Robo!", "Werde Nummer 1 der Rangliste!",
++    "Verbindung zur Wii-Fernbedienung verloren.", "Verbinde das Nunchuk mit der Wii-Fernbedienung.", "Richte die Wii-Fernbedienung auf den Bildschirm."
++  ],
++  "fr-FR": [
++    "Chibi-Robo! (Wii)", "Chibi-Robo!", "Atteins la tête du classement !",
++    "Connexion Wii Remote perdue.", "Branchez le Nunchuk sur la Wii Remote.", "Pointez la Wii Remote vers votre TV."
++  ],
++  "es-ES": [
++    "Chibi-Robo! (Wii)", "Chibi-Robo!", "¡Alcanza el primer puesto!",
++    "Se ha desconectado el mando de Wii.", "Conecta el Nunchuk al mando de Wii.", "Apunta el mando de Wii a la pantalla."
++  ],
++  "it-IT": [
++    "Chibi-Robo! (Wii)", "Chibi-Robo!", "Arriva primo in classifica!",
++    "Telecomando Wii scollegato.", "Collega il Nunchuk al telecomando Wii.", "Punta il telecomando Wii verso lo schermo."
++  ]
++}
+diff --git a/mods/wii-localization/text_map.json b/mods/wii-localization/text_map.json
+new file mode 100644
+index 0000000000000000000000000000000000000000..5a9af079ee50bef26de6462cd2a0125c57d778dd
+--- /dev/null
++++ b/mods/wii-localization/text_map.json
+@@ -0,0 +1,379 @@
++{
++  "interface": [
++    null,
++    null,
++    null,
++    null,
++    null,
++    null,
++    null,
++    null,
++    null,
++    null,
++    null,
++    null,
++    null,
++    12,
++    13,
++    14,
++    15,
++    null,
++    null,
++    null,
++    null,
++    null,
++    null,
++    null,
++    23,
++    24,
++    25,
++    26,
++    27,
++    null,
++    29,
++    30,
++    31,
++    32,
++    33,
++    34,
++    35,
++    36,
++    37,
++    38,
++    39,
++    40,
++    41,
++    42,
++    43,
++    44,
++    45,
++    46,
++    47,
++    48,
++    49,
++    50,
++    51,
++    52,
++    53,
++    54,
++    55,
++    56,
++    57,
++    58,
++    59,
++    60,
++    61,
++    62,
++    63,
++    64,
++    65,
++    null,
++    null,
++    null,
++    69,
++    70,
++    71,
++    72,
++    73,
++    74,
++    75,
++    76,
++    77,
++    78,
++    79,
++    80,
++    81,
++    82,
++    null,
++    84,
++    85,
++    86,
++    87,
++    88,
++    89,
++    90,
++    91,
++    92,
++    93,
++    94,
++    95,
++    96,
++    97,
++    98,
++    99,
++    100,
++    101,
++    102,
++    103,
++    104,
++    105,
++    106,
++    107,
++    108,
++    109,
++    110,
++    111,
++    112,
++    113,
++    114,
++    115,
++    116,
++    117,
++    118,
++    119,
++    120,
++    121,
++    122,
++    123,
++    124,
++    125,
++    126,
++    127,
++    128,
++    129,
++    130,
++    131,
++    132,
++    133,
++    134,
++    135,
++    136,
++    137,
++    138,
++    139,
++    140,
++    141,
++    142,
++    143,
++    144,
++    145,
++    146,
++    147,
++    148,
++    149,
++    150,
++    151,
++    152,
++    153,
++    154,
++    155,
++    156,
++    157,
++    158,
++    159,
++    160,
++    161,
++    162,
++    null,
++    null,
++    null,
++    null,
++    null,
++    163,
++    164,
++    165,
++    166,
++    167,
++    168,
++    169,
++    170,
++    171,
++    172,
++    173,
++    174,
++    175,
++    176,
++    177,
++    178,
++    179,
++    180,
++    181,
++    182,
++    183,
++    184,
++    185,
++    186,
++    187,
++    188,
++    189,
++    190,
++    191,
++    192,
++    193,
++    194,
++    195,
++    196,
++    197,
++    198,
++    199,
++    200,
++    201,
++    202,
++    203,
++    204,
++    205,
++    206,
++    207,
++    208,
++    209,
++    210,
++    211,
++    212,
++    213,
++    214,
++    215,
++    216,
++    217,
++    218,
++    219,
++    220,
++    221,
++    222,
++    223,
++    224,
++    225,
++    226,
++    227,
++    228,
++    229,
++    230,
++    231,
++    232,
++    233,
++    234,
++    235,
++    236,
++    237,
++    238,
++    239,
++    240,
++    241,
++    242,
++    243,
++    244,
++    245,
++    246,
++    247,
++    248,
++    249,
++    250,
++    251,
++    252,
++    253,
++    254,
++    255,
++    256,
++    257,
++    258,
++    259,
++    260,
++    261,
++    null,
++    null,
++    null,
++    null,
++    null,
++    null,
++    null,
++    null,
++    null,
++    null,
++    null,
++    null,
++    null,
++    null,
++    null,
++    null,
++    null,
++    null,
++    null,
++    null,
++    null,
++    null,
++    null,
++    null,
++    null,
++    null,
++    null,
++    null,
++    null,
++    null,
++    null,
++    null,
++    null,
++    null,
++    null,
++    null,
++    null,
++    null,
++    null,
++    null,
++    null,
++    null,
++    null,
++    null,
++    null,
++    null,
++    null,
++    null,
++    null,
++    null,
++    null,
++    null,
++    null,
++    null,
++    null,
++    null,
++    null
++  ],
++  "pc": [
++    0,
++    1,
++    2,
++    null,
++    4,
++    5,
++    6,
++    7,
++    8,
++    9,
++    10,
++    11,
++    12,
++    13,
++    14,
++    15,
++    16,
++    17,
++    18,
++    19,
++    20,
++    null,
++    null,
++    null
++  ],
++  "unclear": [
++    6,
++    7,
++    8,
++    9,
++    10,
++    11,
++    12,
++    29,
++    67,
++    68,
++    69,
++    84,
++    166,
++    167,
++    168,
++    282,
++    287,
++    290,
++    304,
++    322,
++    323,
++    324
++  ]
++}
+diff --git a/mods/wii-localization/wii_text.json b/mods/wii-localization/wii_text.json
+new file mode 100644
+index 0000000000000000000000000000000000000000..4486836e354df7d4c8f0c9c3267d5c6da9d2ff35
+--- /dev/null
++++ b/mods/wii-localization/wii_text.json
+@@ -0,0 +1,684 @@
++[
++  {
++    "indices": [
++      17
++    ],
++    "meaning": "Pointer control",
++    "translations": {
++      "en": "Pointer",
++      "de": "Zeiger",
++      "fr": "Pointeur",
++      "es": "Puntero",
++      "it": "Puntatore"
++    }
++  },
++  {
++    "indices": [
++      18,
++      21
++    ],
++    "meaning": "Enabled",
++    "translations": {
++      "en": "On",
++      "de": "Ein",
++      "fr": "Actif",
++      "es": "Activo",
++      "it": "Attivo"
++    }
++  },
++  {
++    "indices": [
++      19,
++      22
++    ],
++    "meaning": "Disabled",
++    "translations": {
++      "en": "Off",
++      "de": "Aus",
++      "fr": "Inactif",
++      "es": "Inactivo",
++      "it": "Disattivo"
++    }
++  },
++  {
++    "indices": [
++      20
++    ],
++    "meaning": "Stick control",
++    "translations": {
++      "en": "Control stick",
++      "de": "Steuerstick",
++      "fr": "Stick",
++      "es": "Palanca",
++      "it": "Levetta"
++    }
++  },
++  {
++    "indices": [
++      23
++    ],
++    "meaning": "Accept settings",
++    "translations": {
++      "en": "Confirm",
++      "de": "Bestätigen",
++      "fr": "Valider",
++      "es": "Aceptar",
++      "it": "Conferma"
++    }
++  },
++  {
++    "indices": [
++      164
++    ],
++    "meaning": "No free file slots, first line",
++    "translations": {
++      "en": "No room for",
++      "de": "Kein Platz für",
++      "fr": "Aucune place pour",
++      "es": "Sin espacio para",
++      "it": "Manca spazio per"
++    }
++  },
++  {
++    "indices": [
++      165
++    ],
++    "meaning": "No free file slots, continuation",
++    "translations": {
++      "en": "another file.",
++      "de": "eine weitere Datei.",
++      "fr": "un autre fichier.",
++      "es": "otro archivo.",
++      "it": "un altro file."
++    }
++  },
++  {
++    "indices": [
++      185
++    ],
++    "meaning": "Do not touch the power button",
++    "translations": {
++      "en": "Leave the power button alone.",
++      "de": "Den POWER-Knopf nicht drücken.",
++      "fr": "Ne touchez pas au bouton POWER.",
++      "es": "No pulses el botón POWER.",
++      "it": "Non premere il pulsante POWER."
++    },
++    "override": true
++  },
++  {
++    "indices": [
++      268
++    ],
++    "meaning": "New entry marker",
++    "translations": {
++      "en": "New",
++      "de": "Neu",
++      "fr": "Nouveau",
++      "es": "Nuevo",
++      "it": "Nuovo"
++    }
++  },
++  {
++    "indices": [
++      269
++    ],
++    "meaning": "Console save memory damaged",
++    "translations": {
++      "en": "Wii system memory is damaged.",
++      "de": "Der Wii-Speicher ist beschädigt.",
++      "fr": "La mémoire Wii est endommagée.",
++      "es": "La memoria de Wii está dañada.",
++      "it": "La memoria Wii è danneggiata."
++    }
++  },
++  {
++    "indices": [
++      270,
++      286,
++      289,
++      297
++    ],
++    "meaning": "Consult the Wii manual",
++    "translations": {
++      "en": "See the Wii manual for details.",
++      "de": "Mehr dazu im Wii-Handbuch.",
++      "fr": "Consultez le manuel Wii.",
++      "es": "Consulta el manual de Wii.",
++      "it": "Consulta il manuale Wii."
++    }
++  },
++  {
++    "indices": [
++      271
++    ],
++    "meaning": "Console save memory full",
++    "translations": {
++      "en": "Wii system memory is full.",
++      "de": "Der Wii-Speicher ist voll.",
++      "fr": "La mémoire Wii est pleine.",
++      "es": "La memoria de Wii está llena.",
++      "it": "La memoria Wii è piena."
++    }
++  },
++  {
++    "indices": [
++      272,
++      276
++    ],
++    "meaning": "Open Wii data management",
++    "translations": {
++      "en": "In Wii Data Management,",
++      "de": "In der Wii-Datenverwaltung",
++      "fr": "Dans la gestion des données Wii,",
++      "es": "En la gestión de datos de Wii,",
++      "it": "Nella gestione dati Wii,"
++    }
++  },
++  {
++    "indices": [
++      273
++    ],
++    "meaning": "Move data to SD or delete it",
++    "translations": {
++      "en": "move data to SD or delete data",
++      "de": "Daten auf SD verschieben oder löschen,",
++      "fr": "déplacez ou effacez des données",
++      "es": "mueve datos a la SD o bórralos",
++      "it": "sposta dati su SD o cancellali"
++    }
++  },
++  {
++    "indices": [
++      274
++    ],
++    "meaning": "Free one block",
++    "translations": {
++      "en": "to free one block.",
++      "de": "um einen Block freizugeben.",
++      "fr": "pour libérer un bloc (carte SD).",
++      "es": "para liberar un bloque.",
++      "it": "per liberare un blocco."
++    }
++  },
++  {
++    "indices": [
++      275
++    ],
++    "meaning": "Console has no free file slots",
++    "translations": {
++      "en": "Wii memory has no free file slots.",
++      "de": "Keine freien Dateiplätze auf der Wii.",
++      "fr": "La Wii ne peut plus créer de fichiers.",
++      "es": "No caben más archivos en la Wii.",
++      "it": "La Wii non può creare altri file."
++    }
++  },
++  {
++    "indices": [
++      277
++    ],
++    "meaning": "Move data to SD",
++    "translations": {
++      "en": "move files to an SD card",
++      "de": "Dateien auf eine SD-Karte verschieben",
++      "fr": "déplacez des fichiers sur carte SD",
++      "es": "mueve archivos a una tarjeta SD",
++      "it": "sposta file su una scheda SD"
++    }
++  },
++  {
++    "indices": [
++      278
++    ],
++    "meaning": "Or delete data",
++    "translations": {
++      "en": "or delete some files.",
++      "de": "oder Dateien löschen.",
++      "fr": "ou effacez des fichiers.",
++      "es": "o borra algunos archivos.",
++      "it": "o elimina qualche file."
++    }
++  },
++  {
++    "indices": [
++      279
++    ],
++    "meaning": "To organize console saves",
++    "translations": {
++      "en": "To manage Wii system memory,",
++      "de": "Zum Verwalten des Wii-Speichers",
++      "fr": "Pour organiser la mémoire Wii,",
++      "es": "Para organizar la memoria de Wii,",
++      "it": "Per gestire la memoria Wii,"
++    }
++  },
++  {
++    "indices": [
++      280
++    ],
++    "meaning": "Use console save data screen",
++    "translations": {
++      "en": "open the Wii save data screen.",
++      "de": "die Wii-Speicherdaten öffnen.",
++      "fr": "ouvrez les sauvegardes Wii.",
++      "es": "abre los datos de guardado de Wii.",
++      "it": "apri i dati di salvataggio Wii."
++    }
++  },
++  {
++    "indices": [
++      281
++    ],
++    "meaning": "Continuing disables saving",
++    "translations": {
++      "en": "You cannot save if you continue.",
++      "de": "Beim Fortfahren entfällt das Speichern.",
++      "fr": "En continuant, la sauvegarde sera impossible.",
++      "es": "Si sigues, no podrás guardar.",
++      "it": "Se continui, non potrai salvare."
++    }
++  },
++  {
++    "indices": [
++      282
++    ],
++    "meaning": "Confirm continuing",
++    "translations": {
++      "en": "Continue anyway?",
++      "de": "Trotzdem fortfahren?",
++      "fr": "Continuer quand même ?",
++      "es": "¿Continuar de todos modos?",
++      "it": "Continuare comunque?"
++    }
++  },
++  {
++    "indices": [
++      283
++    ],
++    "meaning": "Return to Wii data management",
++    "translations": {
++      "en": "Return to Wii Data Management?",
++      "de": "Zur Wii-Datenverwaltung zurück?",
++      "fr": "Revenir à la gestion des données Wii ?",
++      "es": "¿Volver a la gestión de datos Wii?",
++      "it": "Tornare alla gestione dati Wii?"
++    }
++  },
++  {
++    "indices": [
++      284
++    ],
++    "meaning": "Return to Wii Menu",
++    "translations": {
++      "en": "Go back to the Wii Menu?",
++      "de": "Zurück zum Wii-Menü?",
++      "fr": "Revenir au menu Wii ?",
++      "es": "¿Volver al menú de Wii?",
++      "it": "Tornare al menu Wii?"
++    }
++  },
++  {
++    "indices": [
++      285
++    ],
++    "meaning": "Invalid free space count",
++    "translations": {
++      "en": "Wii free space could not be determined.",
++      "de": "Freier Wii-Speicher nicht ermittelbar.",
++      "fr": "Espace libre Wii indéterminé.",
++      "es": "Espacio libre de Wii desconocido.",
++      "it": "Spazio libero Wii sconosciuto."
++    }
++  },
++  {
++    "indices": [
++      288
++    ],
++    "meaning": "Invalid free file count",
++    "translations": {
++      "en": "Wii file capacity could not be determined.",
++      "de": "Freie Wii-Dateiplätze nicht ermittelbar.",
++      "fr": "Nombre de fichiers libres Wii indéterminé.",
++      "es": "Número de archivos disponibles desconocido.",
++      "it": "Numero di file disponibili sconosciuto."
++    }
++  },
++  {
++    "indices": [
++      291
++    ],
++    "meaning": "Console save memory access error, subject",
++    "translations": {
++      "en": "Wii system memory",
++      "de": "Der Wii-Speicher",
++      "fr": "La mémoire Wii",
++      "es": "La memoria de Wii",
++      "it": "La memoria Wii"
++    }
++  },
++  {
++    "indices": [
++      292
++    ],
++    "meaning": "Could not read or write",
++    "translations": {
++      "en": "could not be read or written.",
++      "de": "konnte nicht gelesen oder beschrieben werden.",
++      "fr": "est inaccessible en lecture ou écriture.",
++      "es": "no admite lectura ni escritura.",
++      "it": "non risponde in lettura o scrittura."
++    }
++  },
++  {
++    "indices": [
++      293
++    ],
++    "meaning": "Refer to Wii manual, first line",
++    "translations": {
++      "en": "For further information,",
++      "de": "Weitere Informationen",
++      "fr": "Pour en savoir plus,",
++      "es": "Para más información,",
++      "it": "Per altre informazioni,"
++    }
++  },
++  {
++    "indices": [
++      294
++    ],
++    "meaning": "Read manual, continuation",
++    "translations": {
++      "en": "see the Wii manual.",
++      "de": "stehen im Wii-Handbuch.",
++      "fr": "lisez le manuel Wii.",
++      "es": "consulta el manual de Wii.",
++      "it": "leggi il manuale Wii."
++    }
++  },
++  {
++    "indices": [
++      295
++    ],
++    "meaning": "During console memory access",
++    "translations": {
++      "en": "While accessing Wii system memory,",
++      "de": "Beim Zugriff auf den Wii-Speicher",
++      "fr": "Pendant un accès à la mémoire Wii,",
++      "es": "Al acceder a la memoria de Wii,",
++      "it": "Durante un accesso alla memoria Wii,"
++    }
++  },
++  {
++    "indices": [
++      296
++    ],
++    "meaning": "Read or write error occurred",
++    "translations": {
++      "en": "a read or write error occurred.",
++      "de": "trat ein Lese- oder Schreibfehler auf.",
++      "fr": "une erreur de lecture ou écriture est survenue.",
++      "es": "hubo un error de lectura o escritura.",
++      "it": "si è verificato un errore."
++    }
++  },
++  {
++    "indices": [
++      298
++    ],
++    "meaning": "Delete file and start over",
++    "translations": {
++      "en": "Erase this file and start over.",
++      "de": "Datei löschen und neu anfangen.",
++      "fr": "Effacer ce fichier et recommencer.",
++      "es": "Borrar este archivo y empezar de nuevo.",
++      "it": "Cancella il file e ricomincia."
++    }
++  },
++  {
++    "indices": [
++      299
++    ],
++    "meaning": "Confirm deletion",
++    "translations": {
++      "en": "Really erase this file?",
++      "de": "Datei wirklich löschen?",
++      "fr": "Effacer ce fichier pour de bon ?",
++      "es": "¿Seguro que quieres borrarlo?",
++      "it": "Vuoi davvero cancellarlo?"
++    }
++  },
++  {
++    "indices": [
++      300
++    ],
++    "meaning": "Menu controls",
++    "translations": {
++      "en": "Menu controls",
++      "de": "Menüsteuerung",
++      "fr": "Commandes du menu",
++      "es": "Controles del menú",
++      "it": "Comandi del menu"
++    }
++  },
++  {
++    "indices": [
++      104
++    ],
++    "meaning": "No Memory Card in Slot A (line 1 of 3)",
++    "override": true,
++    "translations": {
++      "en": "No Memory Card was found",
++      "de": "In Steckplatz A wurde keine",
++      "fr": "Aucune carte mémoire trouvée",
++      "es": "No se encontró ninguna",
++      "it": "Nessuna Scheda Memoria"
++    }
++  },
++  {
++    "indices": [
++      105
++    ],
++    "meaning": "No Memory Card in Slot A (line 2 of 3)",
++    "override": true,
++    "translations": {
++      "en": "in Slot A.",
++      "de": "Memory Card gefunden.",
++      "fr": "dans le Slot A.",
++      "es": "Memory Card en la Ranura A.",
++      "it": "trovata nello Slot A."
++    }
++  },
++  {
++    "indices": [
++      106
++    ],
++    "meaning": "Check the Memory Card connection",
++    "override": true,
++    "translations": {
++      "en": "Please check the Memory Card.",
++      "de": "Bitte prüfe die Memory Card.",
++      "fr": "Vérifiez la carte mémoire.",
++      "es": "Comprueba la Memory Card.",
++      "it": "Controlla la Scheda Memoria."
++    }
++  },
++  {
++    "indices": [
++      109
++    ],
++    "meaning": "The device in Slot A cannot be used (one line)",
++    "override": true,
++    "translations": {
++      "de": "Steckplatz A: Gerät nicht verwendbar.",
++      "fr": "Slot A : objet inutilisable.",
++      "es": "Ranura A: objeto no utilizable."
++    }
++  },
++  {
++    "indices": [
++      179
++    ],
++    "meaning": "Manage Memory Card data (line 1 of 2)",
++    "override": true,
++    "translations": {
++      "de": "Memory-Card-Daten verwaltest du"
++    }
++  },
++  {
++    "indices": [
++      180
++    ],
++    "meaning": "... in the console's Memory Card screen",
++    "override": true,
++    "translations": {
++      "de": "im Memory-Card-Menü der Konsole."
++    }
++  },
++  {
++    "indices": [
++      214
++    ],
++    "meaning": "Cannot save",
++    "override": true,
++    "translations": {
++      "de": "Speichern nicht möglich."
++    }
++  },
++  {
++    "indices": [
++      215
++    ],
++    "meaning": "The device in Slot A cannot be used",
++    "override": true,
++    "translations": {
++      "de": "Steckplatz A: Gerät nicht verwendbar."
++    }
++  },
++  {
++    "indices": [
++      216
++    ],
++    "meaning": "Insert a working Memory Card (line 1 of 2)",
++    "override": true,
++    "translations": {
++      "de": "Bitte setze in Steckplatz A"
++    }
++  },
++  {
++    "indices": [
++      217
++    ],
++    "meaning": "Insert a working Memory Card (line 2 of 2)",
++    "override": true,
++    "translations": {
++      "de": "eine funktionierende Memory Card ein."
++    }
++  },
++  {
++    "indices": [
++      224,
++      259
++    ],
++    "meaning": "Cannot save",
++    "override": true,
++    "translations": {
++      "en": "Unable to save.",
++      "de": "Speichern nicht möglich.",
++      "fr": "Sauvegarde impossible.",
++      "es": "No se puede guardar.",
++      "it": "Impossibile salvare."
++    }
++  },
++  {
++    "indices": [
++      225,
++      260
++    ],
++    "meaning": "The Memory Card in Slot A (line 1 of 2)",
++    "override": true,
++    "translations": {
++      "en": "The Slot A Memory Card is",
++      "de": "Die Memory Card in Steckplatz A",
++      "fr": "La carte mémoire du Slot A est",
++      "es": "La Memory Card de la Ranura A",
++      "it": "La Scheda Memoria nello Slot A"
++    }
++  },
++  {
++    "indices": [
++      226,
++      261
++    ],
++    "meaning": "... is damaged and cannot be used",
++    "override": true,
++    "translations": {
++      "en": "damaged and unusable.",
++      "de": "ist beschädigt und unbrauchbar.",
++      "fr": "endommagée et inutilisable.",
++      "es": "está dañada y no sirve.",
++      "it": "è danneggiata e inutilizzabile."
++    }
++  },
++  {
++    "indices": [
++      227,
++      262
++    ],
++    "meaning": "Replace it with a working Memory Card",
++    "override": true,
++    "translations": {
++      "en": "Please insert a working Memory Card.",
++      "de": "Bitte setze eine intakte ein.",
++      "fr": "Insérez une carte mémoire valide.",
++      "es": "Inserta una Memory Card válida.",
++      "it": "Inserisci una Scheda Memoria valida."
++    }
++  },
++  {
++    "indices": [
++      229
++    ],
++    "meaning": "Replace the Memory Card (one line)",
++    "override": true,
++    "translations": {
++      "de": "Bitte setze eine andere Memory Card ein.",
++      "fr": "Insérez une autre carte mémoire.",
++      "es": "Inserta otra Memory Card."
++    }
++  },
++  {
++    "indices": [
++      254
++    ],
++    "meaning": "The Memory Card in Slot A (line 1 of 2)",
++    "override": true,
++    "translations": {
++      "de": "Die Memory Card in Steckplatz A"
++    }
++  },
++  {
++    "indices": [
++      255
++    ],
++    "meaning": "... is damaged and cannot be used",
++    "override": true,
++    "translations": {
++      "de": "ist beschädigt und unbrauchbar."
++    }
++  },
++  {
++    "indices": [
++      186
++    ],
++    "meaning": "Blank: the Wii prompt has two lines, the US one runs on",
++    "override": true,
++    "translations": {
++      "en": "",
++      "de": "",
++      "fr": "",
++      "es": "",
++      "it": ""
++    }
++  }
++]
+diff --git a/src/game/globalresources.cpp b/src/game/globalresources.cpp
+index 5228fc34d4f5d8bbdaf31ab94f6c48c954f170ba..72a0ae0d8028160dec8e25e1ea7c9c00467c2f58 100644
+--- a/src/game/globalresources.cpp
++++ b/src/game/globalresources.cpp
+@@ -9,6 +9,47 @@
+ #include "game/globals.h"
+ #include "game/stage.h"
+ #include <stdio.h>
++#if defined(WII_LANGUAGE) || defined(WII_LANGUAGE_SYSTEM)
++#include "wii_locale.h"
++#include "wii_text.h"
++
++// The Wii build stored the European tables Shift-JIS safe: the byte after one from 0x80 up has its top bit
++// set as well (0xDF stays, it is the German sharp s), and an accented last letter is followed by 0xA2. The
++// Latin font reads one byte a letter, so the text is put back in place before use; a second pass changes nothing.
++static const char* RepairEuropeanText(const char* text)
++{
++	u8* in  = (u8*)text;
++	u8* out = in;
++	while (*in != 0) {
++		u8 c   = *in++;
++		*out++ = c;
++		if (c >= 0x80 && *in != 0) {
++			u8 next = *in++;
++			if (next == 0xA2 && *in == 0)
++				break;
++			*out++ = next == 0xDF ? next : next & 0x7F;
++		}
++	}
++	*out = 0;
++	return text;
++}
++
++// Language 1, English, came through as it was.
++static const char* MappedText(const char** table, u8 language, s16 slot)
++{
++	return language == 1 ? table[slot] : RepairEuropeanText(table[slot]);
++}
++
++// A Japanese text with no translation: shown only if the Latin font can draw it (plain ASCII such as "NEW").
++static const char* LatinOrEmpty(const char* text)
++{
++	for (const u8* c = (const u8*)text; *c != 0; c++) {
++		if (*c >= 0x80)
++			return "";
++	}
++	return text;
++}
++#endif
+ 
+ extern "C" {
+ #if defined(VERSION_JP)
+@@ -78,7 +119,14 @@ static inline BOOL IsGlobalScript(const u8* script)
+  */
+ extern "C" const char* GetLocalizedPCDialogue(s32 index)
+ {
+-#if defined(VERSION_JP)
++#if defined(WII_LANGUAGE) || defined(WII_LANGUAGE_SYSTEM)
++	u8 language = gGame.mLanguage;
++	if (language == 0)
++		return gPCDialogueByLanguage[0][index];
++	if ((u32)index < ARRAY_SIZE(sPCMap) && sPCMap[index] >= 0)
++		return MappedText(gPCDialogueByLanguage[language], language, sPCMap[index]);
++	return LatinOrEmpty(gPCDialogueByLanguage[0][index]);
++#elif defined(VERSION_JP)
+ 	return gJapanesePCDialogue[index];
+ #else
+ 	return gPCDialogueByLanguage[gGame.mLanguage][index];
+@@ -91,7 +139,22 @@ extern "C" const char* GetLocalizedPCDialogue(s32 index)
+  */
+ extern "C" const char* GetLocalizedInterfaceText(s32 index)
+ {
+-#if defined(VERSION_JP)
++#if defined(WII_LANGUAGE) || defined(WII_LANGUAGE_SYSTEM)
++	u8 language = gGame.mLanguage;
++	if (language == 0)
++		return gInterfaceTextByLanguage[0][index];
++	if ((u32)index < ARRAY_SIZE(sInterfaceRow0))
++		return sWiiInterfaceRows[language - 1][index];
++	if ((u32)index < ARRAY_SIZE(sInterfaceMap)) {
++		// our own text first: it also replaces US lines that do not fit the lines the Wii prints
++		const char* text = WiiOnlyText(language, index);
++		if (text != NULL)
++			return text;
++		if (sInterfaceMap[index] >= 0)
++			return MappedText(gInterfaceTextByLanguage[language], language, sInterfaceMap[index]);
++	}
++	return LatinOrEmpty(gInterfaceTextByLanguage[0][index]);
++#elif defined(VERSION_JP)
+ 	return gJapaneseInterfaceText[index];
+ #else
+ 	return gInterfaceTextByLanguage[gGame.mLanguage][index];
+@@ -507,8 +570,12 @@ extern "C" BOOL IsGlobalDataLoaded()
+  */
+ extern "C" BOOL LoadGlobalResourceData()
+ {
++#if defined(VERSION_JP) || defined(WII_LANGUAGE) || defined(WII_LANGUAGE_SYSTEM)
+ #if defined(VERSION_JP)
+ 	const char* path = gGlobalResourceFileName;
++#else
++	const char* path = "bin/globals.bin";
++#endif
+ #else
+ 	char path[0x40];
+ 	sprintf(path, "bin%s/%s", gResourceDirectorySuffixByLanguage[gGame.mLanguage], gGlobalResourceFileName);
+diff --git a/src/game/stage_data.cpp b/src/game/stage_data.cpp
+index 78004d758506fac369e5ede10dc349893bafec5c..7f57567311929730854cf60b81484b4c18357bed 100644
+--- a/src/game/stage_data.cpp
++++ b/src/game/stage_data.cpp
+@@ -2684,7 +2684,7 @@ extern "C" BOOL AdvanceStageLoad(Stage* stage, s32 index)
+ {
+ 	switch (stage->mState) {
+ 	case 0: {
+-#if defined(VERSION_JP)
++#if defined(VERSION_JP) || defined(WII_LANGUAGE) || defined(WII_LANGUAGE_SYSTEM)
+ 		strcpy(stage->mDataPath, FormatToStaticBuffer("bin/%s.bin", stageTable[index].fileName));
+ #else
+ 		strcpy(stage->mDataPath,
+diff --git a/src/game/wii/cfile.cpp b/src/game/wii/cfile.cpp
+index 2ab1ab7c14dbe961f3a70cdeaa22c516ffa0c3d8..ff57320e4eb26dc68cae21dc69ad157266fcdecb 100644
+--- a/src/game/wii/cfile.cpp
++++ b/src/game/wii/cfile.cpp
+@@ -2,6 +2,10 @@
+ #include "game/mm.h"
+ #include "Dolphin/os.h"
+ #include <string.h>
++#if defined(WII_LANGUAGE) || defined(WII_LANGUAGE_SYSTEM)
++#include "game/wii/cgame.h"
++#include <stdio.h>
++#endif
+ 
+ // The Wii CFile keeps two flags where the GameCube one keeps the archive pointer: the archive is
+ // always the current one, and a buffer handed in by the caller is never freed.
+@@ -126,9 +130,34 @@ BOOL CFile::IsInArchive(const char* path)
+ 	return gCurrentFileArchive != NULL ? fn_801FEE48(&gCurrentFileArchive->mHandle, path) >= 0 : FALSE;
+ }
+ 
++#if defined(WII_LANGUAGE) || defined(WII_LANGUAGE_SYSTEM)
++// the selected language's copy of a disc file, /lang/<code>/<path>
++static s32 LocalizedDiscEntry(const char* path, char* localized, size_t capacity)
++{
++	static const char* const codes[] = { "", "en", "de", "fr", "es", "it" };
++	if (!gGame.mLanguage)
++		return -1;
++	if (*path == '/')
++		++path;
++	if (strlen(path) + sizeof("/lang/en/") > capacity)
++		return -1;
++	sprintf(localized, "/lang/%s/%s", codes[gGame.mLanguage], path);
++	return fn_80190238(localized);
++}
++#endif
++
+ s32 CFile::ConvertPathToEntrynum(const char* path)
+ {
++#if defined(WII_LANGUAGE) || defined(WII_LANGUAGE_SYSTEM)
++	char localized[sizeof(mPath)];
++	s32 entrynum = LocalizedDiscEntry(path, localized, sizeof(localized));
++	if (entrynum >= 0) {
++		return entrynum;
++	}
++	entrynum = -1;
++#else
+ 	s32 entrynum = -1;
++#endif
+ 	if (gCurrentFileArchive != NULL) {
+ 		entrynum = fn_801FEE48(&gCurrentFileArchive->mHandle, path);
+ 	}
+@@ -140,8 +169,22 @@ s32 CFile::ConvertPathToEntrynum(const char* path)
+ 
+ s32 CFile::OpenPath(const char* path)
+ {
++#if defined(WII_LANGUAGE) || defined(WII_LANGUAGE_SYSTEM)
++	char localized[sizeof(mPath)];
++	if (LocalizedDiscEntry(path, localized, sizeof(localized)) >= 0) {
++		strcpy(mPath, localized);
++		mInArchive = FALSE;
++	} else {
++		if (strlen(path) >= sizeof(mPath)) {
++			return -3;
++		}
++		strcpy(mPath, path);
++		mInArchive = IsInArchive(mPath);
++	}
++#else
+ 	strcpy(mPath, path);
+ 	mInArchive = IsInArchive(mPath);
++#endif
+ 	s32 result = Open(mPath);
+ 	if (result < 0) {
+ 		if (mInArchive) {
+diff --git a/src/game/wii/cpad.cpp b/src/game/wii/cpad.cpp
+index eadf2f3a527a6ffc2f9d58bb2f1ab22ea33e5319..90e7fe3bcd9dfb83b5fbdeca9abda7545e0d0e7f 100644
+--- a/src/game/wii/cpad.cpp
++++ b/src/game/wii/cpad.cpp
+@@ -60,6 +60,13 @@ enum {
+ 	RumblePaused   = 4
+ };
+ 
++#if defined(WII_GAMECUBE_PAD)
++// mod: the first A press picks the controls. GameCube A plays with the GameCube controller alone, and the game no
++// longer asks for the Wii Remote; Wii Remote A plays as retail does, pointer, motion and speaker included.
++enum { ControlsUndecided, ControlsGameCube, ControlsRemote };
++static u8 sControls = ControlsUndecided;
++#endif
++
+ // Hardware masks returned by KPAD for the Wii Remote and its extensions.
+ enum {
+ 	WPAD_BUTTON_LEFT  = 0x0001,
+@@ -209,6 +216,16 @@ void CPadOne::Update(const PADStatus* status, s32 frames)
+ 	}
+ 	mProbeResult = probe;
+ 	mDeviceType  = device;
++#if defined(WII_GAMECUBE_PAD)
++	// mod: the game asks for the Wii Remote, its Nunchuk and its pointer from these three values of port 1. With
++	// GameCube controls, or before the choice while only a GameCube controller is in, they say all is there;
++	// mDevices keeps the truth and mInputMask decides which input is read.
++	if (mPort == 0 && (sControls == ControlsGameCube || (sControls == ControlsUndecided && probe == -1 && status->err == PAD_ERR_NONE))) {
++		mProbeResult             = 0;
++		mDeviceType              = 1;
++		mSamples[0].pointerValid = 2;
++	}
++#endif
+ 
+ 	u64 buttons   = 0;
+ 	bool nunchukX = false, nunchukY = false;
+@@ -810,6 +827,11 @@ PADStatus gWiiGameCubePads[4];
+ 
+ void CPadEx::Init(u8 inputMask)
+ {
++#if defined(WII_GAMECUBE_PAD)
++	// mod: both controllers work until the first A press picks one (see Update); CPadAct already turns the GameCube
++	// buttons into the same actions (GameCubeActions), retail only left them switched off
++	inputMask |= InputGameCube;
++#endif
+ 	mInputMask = inputMask;
+ 	if (mInputMask & InputGameCube) {
+ 		PADInit();
+@@ -863,6 +885,24 @@ void CPadEx::Update(s32 frames)
+ 	for (u8 port = 0; port < 4; ++port) {
+ 		gWiiPads[port].Update(&gWiiGameCubePads[port], frames);
+ 	}
++#if defined(WII_GAMECUBE_PAD)
++	if (sControls == ControlsUndecided) {
++		u8 inputMask = 0;
++		if (gWiiPads[0].mTrigger & (1ULL << GameCubeA)) {
++			sControls = ControlsGameCube;
++			inputMask = InputGameCube;
++		} else if (gWiiPads[0].mTrigger & (1ULL << RemoteA)) {
++			sControls = ControlsRemote;
++			inputMask = InputRemote;
++		}
++		if (inputMask != 0) {
++			mInputMask = inputMask;
++			for (int port = 0; port < 4; ++port) {
++				gWiiPads[port].mInputMask = inputMask;
++			}
++		}
++	}
++#endif
+ }
+ 
+ void CPadEx::SetMainStickRange(f32 inner, f32 outer)
+diff --git a/src/game/wii/gamemain.cpp b/src/game/wii/gamemain.cpp
+index 7e110ab84e5a5eff5aaad3f7165e6cb47c239346..26fd13f29735f145565df8e6eb396b6b32a50b34 100644
+--- a/src/game/wii/gamemain.cpp
++++ b/src/game/wii/gamemain.cpp
+@@ -33,11 +33,20 @@ void CBase::Start()
+ 	DVDSetAutoFatalMessaging(TRUE);
+ 	fn_801905CC("/cb/");
+ 	fn_80199AE4();
++	// the mod's language has to be known before the font and the resident text are set up
++#if defined(WII_LANGUAGE_SYSTEM)
++	u8 language = SCGetLanguage();
++	mLanguage   = language <= 5 ? language : 1;
++#elif defined(WII_LANGUAGE)
++	mLanguage = WII_LANGUAGE;
++#endif
+ 	fn_800355F4(this);
+ 	fn_8003568C(this);
+ 	fn_80035AD0(this);
+ 	fn_802AAF98(gGame._0000 + 8);
++#if !defined(WII_LANGUAGE) && !defined(WII_LANGUAGE_SYSTEM)
+ 	mLanguage = 0;
++#endif
+ 	mPad.Init(1);
+ 	KPADSetPosParam(gWiiPads[0].mPort, 0.07f, 0.8f);
+ 	KPADSetHoriParam(gWiiPads[0].mPort, 0.05f, 1.0f);
+diff --git a/src/game/wii/homemenu.cpp b/src/game/wii/homemenu.cpp
+index a8c828a862f3872a8f4df2ffd69319b93c5ae96b..e1a85f4ebe233bce3778841da2f6d1eec76d6e9a 100644
+--- a/src/game/wii/homemenu.cpp
++++ b/src/game/wii/homemenu.cpp
+@@ -44,12 +44,17 @@ extern "C" void InitWiiHomeMenu(WiiHomeMenu* menu)
+ 	menu->layout        = 0;
+ 	menu->message       = 0;
+ 	menu->configuration = 0;
+-	menu->language      = SCGetLanguage();
+-	menu->flags         = 0;
+-	menu->sound         = 0;
+-	menu->heapSize      = 0x80000;
+-	menu->scaleX        = 1;
+-	menu->scaleY        = 1;
+-	menu->speed         = 1;
+-	menu->allocator     = &gWiiPadAllocator;
++#if defined(WII_LANGUAGE) || defined(WII_LANGUAGE_SYSTEM)
++	// the archive loader indexes its homeBtn table with this, so the mod's language picks the files
++	menu->language = gGame.mLanguage;
++#else
++	menu->language = SCGetLanguage();
++#endif
++	menu->flags     = 0;
++	menu->sound     = 0;
++	menu->heapSize  = 0x80000;
++	menu->scaleX    = 1;
++	menu->scaleY    = 1;
++	menu->speed     = 1;
++	menu->allocator = &gWiiPadAllocator;
+ }
+diff --git a/tools/project.py b/tools/project.py
+index d97a40d25a30c7046b9f718b7e65472c96bdef1d..1040cec9d631a5bb98ecdc4e7495df1ce9c5146f 100644
+--- a/tools/project.py
++++ b/tools/project.py
+@@ -158,6 +158,7 @@ class ProjectConfig:
+     def __init__(self) -> None:
+         # Paths
+         self.build_dir: Path = Path("build")  # Output build files
++        self.output_name: Optional[str] = None  # Separate output for a mod of a retail version
+         self.src_dir: Path = Path("src")  # C/C++/asm source files
+         self.tools_dir: Path = Path("tools")  # Python scripts
+         self.asm_dir: Optional[Path] = Path(
+@@ -254,7 +255,6 @@ class ProjectConfig:
+             "build_dir",
+             "src_dir",
+             "tools_dir",
+-            "check_sha_path",
+             "config_path",
+             "ldflags",
+             "linker_version",
+@@ -264,6 +264,8 @@ class ProjectConfig:
+         for attr in required_attrs:
+             if getattr(self, attr) is None:
+                 sys.exit(f"ProjectConfig.{attr} missing")
++        if self.check_sha_path is None and not self.non_matching:
++            sys.exit("A matching build requires a retail hash")
+ 
+     # Creates a map of object names to Object instances
+     # Options are fully resolved from the library and object.
+@@ -283,7 +285,7 @@ class ProjectConfig:
+ 
+     # Gets the output path for build-related files.
+     def out_path(self) -> Path:
+-        return self.build_dir / str(self.version)
++        return self.build_dir / (self.output_name or str(self.version))
+ 
+     # Gets the path to the compilers directory.
+     # Exits the program if neither `compilers_path` nor `compilers_tag` is provided.
+@@ -1374,13 +1376,14 @@ def generate_build_ninja(
+             command=f"{dtk} shasum {quiet} -c $in -o $out",
+             description="CHECK $in",
+         )
+-        n.build(
+-            outputs=ok_path,
+-            rule="check",
+-            inputs=config.check_sha_path,
+-            implicit=[dtk, *link_outputs],
+-            order_only="post-build",
+-        )
++        if config.check_sha_path is not None:
++            n.build(
++                outputs=ok_path,
++                rule="check",
++                inputs=config.check_sha_path,
++                implicit=[dtk, *link_outputs],
++                order_only="post-build",
++            )
+         n.newline()
+ 
+         ###
+@@ -1392,17 +1395,13 @@ def generate_build_ninja(
+             command=f"$python {configure_script} $configure_args progress",
+             description="PROGRESS",
+         )
+-        n.build(
+-            outputs="progress",
+-            rule="progress",
+-            implicit=[
+-                ok_path,
+-                configure_script,
+-                python_lib,
+-                report_path,
+-            ],
+-            order_only="post-build",
+-        )
++        if config.check_sha_path is not None:
++            n.build(
++                outputs="progress",
++                rule="progress",
++                implicit=[ok_path, configure_script, python_lib, report_path],
++                order_only="post-build",
++            )
+ 
+         ###
+         # Generate progress report
+@@ -1525,17 +1524,18 @@ def generate_build_ninja(
+             command=f"{dtk} dol apply $in",
+             description=f"APPLY {dol_elf_path}",
+         )
+-        n.build(
+-            inputs=[config.config_path, dol_elf_path],
+-            outputs="dol_apply",
+-            rule="dol_apply",
+-            implicit=[ok_path],
+-        )
+-        n.build(
+-            outputs="apply",
+-            rule="phony",
+-            inputs="dol_apply",
+-        )
++        if config.check_sha_path is not None:
++            n.build(
++                inputs=[config.config_path, dol_elf_path],
++                outputs="dol_apply",
++                rule="dol_apply",
++                implicit=[ok_path],
++            )
++            n.build(
++                outputs="apply",
++                rule="phony",
++                inputs="dol_apply",
++            )
+         n.newline()
+ 
+     ###
+diff --git a/tools/test_wii_iso.py b/tools/test_wii_iso.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..1f3aeafa79c63aa9df4b8eb51c20fcde3808a5d6
+--- /dev/null
++++ b/tools/test_wii_iso.py
+@@ -0,0 +1,121 @@
++import struct
++import tempfile
++import unittest
++from pathlib import Path
++
++from tools.wii_iso import port_dol, prepare_tree
++
++
++class PrepareTreeTests(unittest.TestCase):
++    def test_mod_files_replace_links_and_original_stays(self):
++        with tempfile.TemporaryDirectory() as tmp:
++            tmp = Path(tmp)
++            original, root, mod = tmp / "original", tmp / "root", tmp / "mod"
++            (original / "sys").mkdir(parents=True)
++            (original / "files/bin").mkdir(parents=True)
++            (original / "sys/main.dol").write_bytes(b"retail dol")
++            (original / "files/bin/stage01.bin").write_bytes(b"retail stage")
++            (original / "files/bin/globals.bin").write_bytes(b"retail globals")
++            (mod / "files/bin").mkdir(parents=True)
++            (mod / "main.dol").write_bytes(b"mod dol")
++            (mod / "files/bin/globals.bin").write_bytes(b"mod globals")
++
++            self.assertEqual(prepare_tree(original, root, mod / "main.dol", mod / "files"), 2)
++            self.assertEqual((root / "sys/main.dol").read_bytes(), b"mod dol")
++            self.assertEqual((root / "files/bin/globals.bin").read_bytes(), b"mod globals")
++            self.assertEqual((root / "files/bin/stage01.bin").read_bytes(), b"retail stage")
++            self.assertEqual((original / "sys/main.dol").read_bytes(), b"retail dol")
++            self.assertEqual((original / "files/bin/globals.bin").read_bytes(), b"retail globals")
++
++            # a file the mod no longer has comes back from the original on the next build
++            (mod / "files/bin/globals.bin").unlink()
++            self.assertEqual(prepare_tree(original, root, mod / "main.dol", mod / "files"), 1)
++            self.assertEqual((root / "files/bin/globals.bin").read_bytes(), b"retail globals")
++
++    def test_patch_files_lie_under_the_mods(self):
++        with tempfile.TemporaryDirectory() as tmp:
++            tmp = Path(tmp)
++            original, root, patch, mod = tmp / "original", tmp / "root", tmp / "patch", tmp / "mod"
++            (original / "sys").mkdir(parents=True)
++            (original / "files/bin").mkdir(parents=True)
++            (original / "files/bin/stage01.bin").write_bytes(b"retail stage")
++            (original / "files/bin/stage02.bin").write_bytes(b"retail stage 2")
++            (original / "files/Item").mkdir()
++            (original / "files/Item/letter.brres").write_bytes(b"retail letter")
++            (patch / "bin").mkdir(parents=True)
++            (patch / "item").mkdir()
++            (patch / "main.dol").write_bytes(b"patch dol")
++            (patch / "bin/stage01.bin").write_bytes(b"patch stage")
++            (patch / "bin/stage02.bin").write_bytes(b"patch stage 2")
++            (patch / "bin/extra.bin").write_bytes(b"not on the disc")
++            (patch / "item/letter.brres").write_bytes(b"patch letter")
++            (tmp / "secret.txt").write_bytes(b"not for the image")
++            (patch / "bin/stage03.bin").symlink_to(tmp / "secret.txt")
++            (mod / "bin").mkdir(parents=True)
++            (mod / "bin/stage02.bin").write_bytes(b"mod stage 2")
++            (mod / "bin/new.bin").write_bytes(b"mod adds this")
++            (tmp / "mod.dol").write_bytes(b"mod dol")
++
++            self.assertEqual(prepare_tree(original, root, tmp / "mod.dol", mod, patch), 5)
++            self.assertEqual((root / "sys/main.dol").read_bytes(), b"mod dol")
++            self.assertEqual((root / "files/bin/stage01.bin").read_bytes(), b"patch stage")
++            self.assertEqual((root / "files/bin/stage02.bin").read_bytes(), b"mod stage 2")
++            self.assertEqual((root / "files/bin/new.bin").read_bytes(), b"mod adds this")
++            # the disc ignores case: the patch's item/ is the disc's Item/, not a second folder
++            self.assertEqual((root / "files/Item/letter.brres").read_bytes(), b"patch letter")
++            self.assertEqual(sorted(p.name for p in (root / "files").iterdir()), ["Item", "bin"])
++            # like Riivolution, the patch only replaces what the disc has
++            self.assertFalse((root / "files/bin/extra.bin").exists())
++            # a link out of the patch folder is not followed
++            self.assertFalse((root / "files/bin/stage03.bin").exists())
++            self.assertFalse((root / "files/main.dol").exists())
++
++
++def make_dol(*sections: bytes) -> bytes:
++    """A DOL whose first sections hold `sections`, back to back after the header."""
++    offsets, sizes, at = [0] * 18, [0] * 18, 0x100
++    for index, data in enumerate(sections):
++        offsets[index], sizes[index] = at, len(data)
++        at += len(data)
++    header = struct.pack(">18I", *offsets) + bytes(72) + struct.pack(">18I", *sizes)
++    return header.ljust(0x100, b"\0") + b"".join(sections)
++
++
++class PortDolTests(unittest.TestCase):
++    text = bytes(range(64))
++    strings = b"Wii\0" + "ちびロボ！".encode("shift_jis") + b"\0\0" + b"zoom-in-text-xyz" * 3
++
++    def test_changes_follow_the_data_to_its_new_place(self):
++        retail = make_dol(self.text, self.strings)
++        patched = make_dol(self.text, self.strings.replace("ちびロボ！".encode("shift_jis"), b"Chibi-Robo"))
++        # the mod's code is longer, so its strings section starts later and has more in front
++        target = make_dol(self.text + b"mod code", b"new!" * 5 + self.strings)
++        ported = port_dol(retail, patched, target)
++        self.assertIn(b"Wii\0Chibi-Robo\0\0zoom", ported)
++        self.assertEqual(len(ported), len(target))
++        self.assertEqual(port_dol(retail, patched, retail), patched)
++
++    def test_data_twice_in_retail_is_not_placed_on_the_other_copy(self):
++        stretch = b"\0\0\0\0Yes\0\0\0\0\0No\0\0\0"
++        retail = make_dol(self.text, b"X" * 40 + stretch + b"Z" * 40 + stretch + b"Q" * 40)
++        patched = make_dol(self.text, b"X" * 40 + stretch.replace(b"Yes", b"Oui") + b"Z" * 40 + stretch + b"Q" * 40)
++        # the mod reworded the first copy: the second must stay as it is
++        target = make_dol(self.text, b"X" * 40 + stretch.replace(b"Yes", b"Yep") + b"Z" * 40 + stretch + b"Q" * 40)
++        with self.assertRaises(ValueError):
++            port_dol(retail, patched, target)
++
++    def test_ambiguous_or_missing_data_is_an_error(self):
++        retail = make_dol(self.text, b"same" * 32)
++        patched = make_dol(self.text, b"same" * 16 + b"SAME" + b"same" * 15)
++        with self.assertRaises(ValueError):
++            port_dol(retail, patched, make_dol(self.text, b"same" * 64))
++        with self.assertRaises(ValueError):
++            port_dol(retail, patched, make_dol(self.text, b"other" * 16))
++
++    def test_patch_for_another_layout_is_refused(self):
++        with self.assertRaises(ValueError):
++            port_dol(make_dol(self.text), make_dol(self.text + b"!"), make_dol(self.text))
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/tools/test_wii_lang_data.py b/tools/test_wii_lang_data.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..f025ba0d622b5817379fe6c5702eebe3d60f6d91
+--- /dev/null
++++ b/tools/test_wii_lang_data.py
+@@ -0,0 +1,375 @@
++#!/usr/bin/env python3
++"""Unit tests for tools/wii_lang_data.py using synthetic scripts and files."""
++
++from __future__ import annotations
++
++import struct
++import unittest
++
++from tools.wii_lang_data import (
++    _build_tpl,
++    _decode_tpl_pixels,
++    _encode_tpl_pixels,
++    align_by_structure,
++    convert_tpl_to_wii_format,
++    extract_script_entries,
++    map_globals_slots,
++    parse_script_from,
++    parse_tpl_header,
++    parse_tpl_textures,
++    translate_globals_bin,
++    translate_stage_bin,
++)
++
++
++def _imm16(val: int) -> bytes:
++    return struct.pack("<Bh", 23, val)
++
++
++def _addr_of(off: int) -> bytes:
++    return struct.pack("<BI", 25, off)
++
++
++def _build_stage_bin(scripts_builder) -> bytes:
++    """Build a minimal synthetic StageFileHeader + scriptOffsets + script body."""
++    hdr_size = 13 * 4
++    so_off = hdr_size
++    # Build body starting after 3 scriptOffsets entries + 0xFFFFFFFF terminator (16 bytes)
++    body_start = so_off + 16
++    body, entries, setup_off = scripts_builder(body_start)
++    hdr = [0] * 13
++    hdr[2] = so_off
++    hdr[3] = setup_off
++    so_bytes = struct.pack("<4I", entries[0], entries[1], entries[2], 0xFFFFFFFF)
++    return struct.pack("<13I", *hdr) + so_bytes + body
++
++
++def _make_two_slot_script(
++    msg0: bytes,
++    msg1: bytes,
++    base: int = 0,
++    extra_cmd_in_s0: bytes = b"",
++    include_s2: bool = False,
++):
++    """Create a synthetic script region with IF, MSG, ADDRESS_OF, RUN, GOTO, RETURN."""
++    # Layout:
++    # s0: IF (IMM16 1) -> skip_tgt; MSG msg0; SET(addr_of(after_s0_data)); GOTO s1; [after_s0_data: RETURN]
++    # s1: MSG msg1; RETURN
++    # s2 (optional): MSG b"EXTRA"; RETURN
++    buf = bytearray()
++
++    def rel(pos: int) -> int:
++        return base + pos
++
++    s0_off = rel(len(buf))
++    buf.extend(extra_cmd_in_s0)
++    # IF (IMM16 1) -> skip_tgt
++    buf.append(5)
++    buf.extend(_imm16(1))
++    if_tgt_field = len(buf)
++    buf.extend(b"\x00\x00\x00\x00")
++    # MSG msg0
++    buf.append(35)
++    msg0_nxt_field = len(buf)
++    buf.extend(b"\x00\x00\x00\x00")
++    buf.extend(msg0)
++    msg0_end = rel(len(buf))
++    struct.pack_into("<I", buf, msg0_nxt_field, msg0_end)
++    # SET (IMM16 0) (ADDRESS_OF ret_label)
++    buf.append(4)
++    buf.extend(_imm16(0))
++    addr_field = len(buf) + 1  # +1 skips op 25
++    buf.extend(_addr_of(0))
++    # GOTO s1
++    buf.append(3)
++    goto_field = len(buf)
++    buf.extend(b"\x00\x00\x00\x00")
++    # ret_label (target of IF and ADDRESS_OF)
++    ret_label = rel(len(buf))
++    buf.append(2)  # RETURN
++    struct.pack_into("<I", buf, if_tgt_field, ret_label)
++    struct.pack_into("<I", buf, addr_field, ret_label)
++
++    s1_off = rel(len(buf))
++    struct.pack_into("<I", buf, goto_field, s1_off)
++    buf.append(35)
++    msg1_nxt_field = len(buf)
++    buf.extend(b"\x00\x00\x00\x00")
++    buf.extend(msg1)
++    struct.pack_into("<I", buf, msg1_nxt_field, rel(len(buf)))
++    buf.append(2)  # RETURN
++
++    s2_off = 0
++    if include_s2:
++        s2_off = rel(len(buf))
++        buf.append(35)
++        nxt2 = len(buf)
++        buf.extend(b"\x00\x00\x00\x00")
++        buf.extend(b"ONLY_WII")
++        struct.pack_into("<I", buf, nxt2, rel(len(buf)))
++        buf.append(2)
++
++    return bytes(buf), (s0_off, s1_off, s2_off), s1_off
++
++
++class TestWiiLangData(unittest.TestCase):
++    def test_relocate_offsets_on_longer_and_shorter_messages(self) -> None:
++        wii_bin = _build_stage_bin(lambda b: _make_two_slot_script(b"JP0", b"JP_LONG_ONE", base=b))
++        tgt_bin = _build_stage_bin(
++            lambda b: _make_two_slot_script(b"MUCH_LONGER_ENGLISH_0", b"S1", base=b)
++        )
++
++        out_bin, stats = translate_stage_bin(wii_bin, tgt_bin, jp_bytes=wii_bin)
++        self.assertEqual(stats["total_messages"], 2)
++        self.assertEqual(stats["translated_messages"], 2)
++        self.assertEqual(stats["untranslated_messages"], 0)
++
++        # Re-parse relocated binary and check all offsets & messages
++        _, ent = extract_script_entries(out_bin, is_globals=False)
++        _, jumps, addr_ofs, msgs = parse_script_from(out_bin, list(ent.values()), 0)
++        self.assertEqual([out_bin[m[3]:m[4]] for m in msgs], [b"MUCH_LONGER_ENGLISH_0", b"S1"])
++
++        # s1 shifted by (+18 - 9) = +9? Let's verify exact delta from wii_bin:
++        delta0 = len(b"MUCH_LONGER_ENGLISH_0") - len(b"JP0")
++        hdr_wii = struct.unpack_from("<13I", wii_bin, 0)
++        hdr_out = struct.unpack_from("<13I", out_bin, 0)
++        self.assertEqual(hdr_out[3], hdr_wii[3] + delta0)
++        # ADDRESS_OF target (ret_label) sits after msg0, so it also shifted by delta0
++        self.assertEqual(len(addr_ofs), 1)
++        addr_val = struct.unpack_from("<I", out_bin, addr_ofs[0])[0]
++        self.assertEqual(out_bin[addr_val], 2)  # points to RETURN
++
++    def test_jp_match_required_and_ambiguous_fallback(self) -> None:
++        wii_bin = _build_stage_bin(lambda b: _make_two_slot_script(b"WII_SAME", b"WII_CHANGED", base=b))
++        jp_bin = _build_stage_bin(lambda b: _make_two_slot_script(b"WII_SAME", b"GC_JP_OLD", base=b))
++        tgt_bin = _build_stage_bin(lambda b: _make_two_slot_script(b"TRANS_0", b"TRANS_1", base=b))
++
++        out_bin, stats = translate_stage_bin(wii_bin, tgt_bin, jp_bytes=jp_bin)
++        self.assertEqual(stats["translated_messages"], 1)
++        self.assertEqual(stats["untranslated_messages"], 1)
++        self.assertEqual(stats["untranslated_indices"], [1])
++
++        _, ent = extract_script_entries(out_bin, is_globals=False)
++        _, _, _, msgs = parse_script_from(out_bin, list(ent.values()), 0)
++        self.assertEqual([out_bin[m[3]:m[4]] for m in msgs], [b"TRANS_0", b"WII_CHANGED"])
++
++    def test_ambiguous_run_conflict_stays_japanese(self) -> None:
++        # Two slots s0 and s1 both RUN the same shared subroutine, but in target_bin
++        # s0 and s1 RUN two different subroutines with different texts -> ambiguous!
++        def build_wii(base: int):
++            buf = bytearray()
++            sub_off = base + 12  # after s0 (6 bytes) and s1 (6 bytes)
++            # s0: RUN sub; RETURN
++            buf.extend(struct.pack("<BI", 12, sub_off) + b"\x02")
++            # s1: RUN sub; RETURN
++            buf.extend(struct.pack("<BI", 12, sub_off) + b"\x02")
++            # sub: MSG "SHARED"; RETURN
++            buf.append(35)
++            nxt = len(buf)
++            buf.extend(b"\x00\x00\x00\x00SHARED\x02")
++            struct.pack_into("<I", buf, nxt, base + len(buf) - 1)
++            return bytes(buf), (base, base + 6, 0), 0
++
++        def build_tgt(base: int):
++            buf = bytearray()
++            sub0_off = base + 12
++            # s0: RUN sub0; RETURN
++            buf.extend(struct.pack("<BI", 12, sub0_off) + b"\x02")
++            # s1: RUN sub1; RETURN (placeholder)
++            buf.extend(struct.pack("<BI", 12, 0) + b"\x02")
++            # sub0: MSG "OPT_A"; RETURN
++            buf.append(35)
++            n0 = len(buf)
++            buf.extend(b"\x00\x00\x00\x00OPT_A\x02")
++            struct.pack_into("<I", buf, n0, base + len(buf) - 1)
++            # sub1: MSG "OPT_B"; RETURN
++            sub1_off = base + len(buf)
++            struct.pack_into("<I", buf, 7, sub1_off)
++            buf.append(35)
++            n1 = len(buf)
++            buf.extend(b"\x00\x00\x00\x00OPT_B\x02")
++            struct.pack_into("<I", buf, n1, base + len(buf) - 1)
++            return bytes(buf), (base, base + 6, 0), 0
++
++        wii_bin = _build_stage_bin(build_wii)
++        tgt_bin = _build_stage_bin(build_tgt)
++        # align_by_structure must reject conflicting candidates OPT_A vs OPT_B
++        self.assertEqual(align_by_structure(wii_bin, tgt_bin, is_globals=False), {})
++        out_bin, stats = translate_stage_bin(wii_bin, tgt_bin)
++        self.assertEqual(stats["translated_messages"], 0)
++        self.assertEqual(out_bin, wii_bin)
++
++    def test_missing_counterpart_fallback(self) -> None:
++        wii_bin = _build_stage_bin(
++            lambda b: _make_two_slot_script(b"A", b"B", base=b, include_s2=True)
++        )
++        tgt_bin = _build_stage_bin(
++            lambda b: _make_two_slot_script(b"EN_A", b"EN_B", base=b, include_s2=False)
++        )
++        out_bin, stats = translate_stage_bin(wii_bin, tgt_bin)
++        self.assertEqual(stats["total_messages"], 3)
++        self.assertEqual(stats["translated_messages"], 2)
++        self.assertEqual(stats["untranslated_indices"], [2])
++        _, ent = extract_script_entries(out_bin, is_globals=False)
++        _, _, _, msgs = parse_script_from(out_bin, list(ent.values()), 0)
++        self.assertEqual([out_bin[m[3]:m[4]] for m in msgs], [b"EN_A", b"EN_B", b"ONLY_WII"])
++
++    def test_globals_bin_tables_and_scripts(self) -> None:
++        def make_globals(item_name: bytes, msg_bytes: bytes) -> bytes:
++            # data: 0x60 header (only 0x28 points to items table at 0x60; 159*20 bytes), then string
++            data = bytearray(0x60 + 159 * 20)
++            struct.pack_into("<I", data, 0x28, 0x60)
++            struct.pack_into("<I", data, 0x60, len(data))
++            data.extend(item_name + b"\x00")
++            coll = b"\xAA\xBB\xCC\xDD"
++            # scripts: 4-byte offset table [4], then MSG + RETURN
++            scr = bytearray(struct.pack("<I", 4))
++            scr.append(35)
++            nxt = len(scr)
++            scr.extend(b"\x00\x00\x00\x00")
++            scr.extend(msg_bytes)
++            struct.pack_into("<I", scr, nxt, len(scr))
++            scr.append(2)
++
++            d_pad = (len(data) + 3) & ~3
++            c_off = d_pad
++            s_off = (c_off + len(coll) + 3) & ~3
++            hdr = struct.pack("<6I", 0, len(data), c_off, len(coll), s_off, len(scr))
++            return (
++                hdr
++                + data
++                + b"\x00" * (d_pad - len(data))
++                + coll
++                + b"\x00" * (s_off - (c_off + len(coll)))
++                + scr
++            )
++
++        wii_g = make_globals(b"JP_IT", b"JP_SCR")
++        tgt_g = make_globals(b"VERY_LONG_ENGLISH_ITEM", b"LONG_ENGLISH_SCRIPT_MSG")
++        out_g, stats = translate_globals_bin(wii_g, tgt_g, jp_bytes=wii_g)
++        self.assertEqual(stats["table_strings_translated"], 1)
++        self.assertEqual(stats["translated_messages"], 1)
++
++        hdr = struct.unpack_from("<6I", out_g, 0)
++        out_data = out_g[0x18 + hdr[0] : 0x18 + hdr[0] + hdr[1]]
++        str_off = struct.unpack_from("<I", out_data, 0x60)[0]
++        self.assertTrue(out_data[str_off:].startswith(b"VERY_LONG_ENGLISH_ITEM\x00"))
++        out_coll = out_g[0x18 + hdr[2] : 0x18 + hdr[2] + hdr[3]]
++        self.assertEqual(out_coll, b"\xAA\xBB\xCC\xDD")
++        _, ent = extract_script_entries(out_g, is_globals=True)
++        _, _, _, msgs = parse_script_from(out_g, list(ent.values()), 0x18 + hdr[4])
++        self.assertEqual([out_g[m[3]:m[4]] for m in msgs], [b"LONG_ENGLISH_SCRIPT_MSG"])
++
++    def test_tpl_header_and_validation(self) -> None:
++        # 1 texture: 64x32, fmt=5
++        tpl = struct.pack(">3I2I2HI", 0x0020AF30, 1, 12, 20, 0, 32, 64, 5)
++        self.assertEqual(parse_tpl_header(tpl), [(64, 32, 5)])
++        with self.assertRaises(ValueError):
++            parse_tpl_header(b"\x00" * 12)
++
++    def test_globals_bin_inserted_and_deleted_slots_via_jp(self) -> None:
++        def build_globals(slot_specs):
++            data = bytearray(0x60)
++            coll = b""
++            tbl_size = len(slot_specs) * 4
++            scr = bytearray(tbl_size)
++            for idx, (prefix_cmds, msg_bytes) in enumerate(slot_specs):
++                struct.pack_into("<I", scr, idx * 4, len(scr))
++                scr.extend(prefix_cmds)
++                scr.append(35)
++                nxt = len(scr)
++                scr.extend(b"\x00\x00\x00\x00")
++                scr.extend(msg_bytes)
++                struct.pack_into("<I", scr, nxt, len(scr))
++                scr.append(2)
++            d_pad = (len(data) + 3) & ~3
++            hdr = struct.pack("<6I", 0, len(data), d_pad, 0, d_pad, len(scr))
++            return hdr + data + scr
++
++        # Distinct synthetic prefix opcodes (SET with different imm16 values)
++        p0 = b"\x04" + _imm16(10) + _imm16(1)
++        p_del = b"\x04" + _imm16(20) + _imm16(2)
++        p2 = b"\x04" + _imm16(30) + _imm16(3)
++        p_ins = b"\x04" + _imm16(99) + _imm16(9)
++        p3 = b"\x04" + _imm16(40) + _imm16(4)
++
++        wii_g = build_globals([(p0, b"JP0"), (p_del, b"JP_DEL"), (p2, b"JP2"), (p3, b"JP3")])
++        jp_g = build_globals([(p0, b"JP0"), (p_del, b"JP_DEL"), (p2, b"JP2"), (p3, b"JP3")])
++        tgt_g = build_globals(
++            [(p0, b"EN0"), (p2, b"EN2_LONGER"), (p_ins, b"EXTRA1"), (p_ins, b"EXTRA2"), (p3, b"EN3")]
++        )
++
++        slot_map = map_globals_slots(jp_g, tgt_g)
++        self.assertEqual(slot_map, {"g0": "g0", "g2": "g1", "g3": "g4"})
++
++        out_g, stats = translate_globals_bin(wii_g, tgt_g, jp_bytes=jp_g)
++        self.assertEqual(stats["slots_total"], 4)
++        self.assertEqual(stats["slots_mapped"], 3)
++        self.assertEqual(stats["translated_messages"], 3)
++        self.assertEqual(stats["untranslated_messages"], 1)
++
++        hdr = struct.unpack_from("<6I", out_g, 0)
++        _, ent = extract_script_entries(out_g, is_globals=True)
++        _, _, _, msgs = parse_script_from(out_g, list(ent.values()), 0x18 + hdr[4])
++        self.assertEqual([out_g[m[3]:m[4]] for m in msgs], [b"EN0", b"JP_DEL", b"EN2_LONGER", b"EN3"])
++
++    def test_tpl_format_conversion_and_mismatches(self) -> None:
++        w, h = 8, 8
++        # Synthetic 8x8 RGBA pattern (red/blue halves)
++        rgba = bytearray(w * h * 4)
++        for y in range(h):
++            for x in range(w):
++                idx = (y * w + x) * 4
++                rgba[idx : idx + 4] = bytes((255, 0, 0, 255) if x < 4 else (0, 0, 255, 255))
++
++        def make_tex_entry(fmt: int, data: bytes, pal_fmt=None, pal_data=None):
++            return {
++                "width": w,
++                "height": h,
++                "fmt": fmt,
++                "wrap_s": 0,
++                "wrap_t": 0,
++                "min_filter": 1,
++                "mag_filter": 1,
++                "lod_bias": 0.0,
++                "edge_lod": 0,
++                "min_lod": 0,
++                "max_lod": 0,
++                "unpacked": 0,
++                "data": data,
++                "pal_fmt": pal_fmt,
++                "pal_data": pal_data,
++            }
++
++        # CI4 (fmt=8) with RGB565 palette -> RGB5A3 (fmt=5)
++        pal_bytes = struct.pack(">2H", 0xF800, 0x001F)  # red, blue
++        ci4_bytes = bytes([0x00, 0x00, 0x11, 0x11] * 8)  # left 4 px = idx 0, right 4 px = idx 1
++        gc_tpl = _build_tpl([make_tex_entry(8, ci4_bytes, pal_fmt=1, pal_data=pal_bytes)])
++        wii_tpl = _build_tpl([make_tex_entry(5, _encode_tpl_pixels(bytes(rgba), w, h, 5))])
++
++        converted, info = convert_tpl_to_wii_format(wii_tpl, gc_tpl)
++        self.assertIsNotNone(converted)
++        self.assertEqual(info["reason"], "reencoded")
++        self.assertEqual(parse_tpl_header(converted), [(8, 8, 5)])
++        conv_tex = parse_tpl_textures(converted)[0]
++        decoded = _decode_tpl_pixels(bytes(conv_tex["data"]), w, h, int(conv_tex["fmt"]))
++        self.assertEqual(tuple(decoded[0:4]), (255, 0, 0, 255))
++        self.assertEqual(tuple(decoded[4 * 4 : 4 * 4 + 4]), (0, 0, 255, 255))
++
++        # Texture count mismatch
++        two_tex_tpl = _build_tpl([make_tex_entry(5, b"\x00" * 128), make_tex_entry(5, b"\x00" * 128)])
++        res_cnt, info_cnt = convert_tpl_to_wii_format(wii_tpl, two_tex_tpl)
++        self.assertIsNone(res_cnt)
++        self.assertEqual(info_cnt["reason"], "texture_count_mismatch")
++
++        # Dimension mismatch
++        wide_entry = make_tex_entry(5, b"\x00" * 256)
++        wide_entry["width"] = 16
++        wide_tpl = _build_tpl([wide_entry])
++        res_dim, info_dim = convert_tpl_to_wii_format(wii_tpl, wide_tpl)
++        self.assertIsNone(res_dim)
++        self.assertEqual(info_dim["reason"], "dimension_mismatch")
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/tools/test_wii_lang_install.py b/tools/test_wii_lang_install.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..f1d674396c59345da97f022d7c9a143d1d842cb8
+--- /dev/null
++++ b/tools/test_wii_lang_install.py
+@@ -0,0 +1,39 @@
++import tempfile
++import unittest
++from pathlib import Path
++
++from tools.wii_lang_install import install
++
++
++class LanguageInstallTests(unittest.TestCase):
++    def test_replaces_only_generated_languages(self):
++        with tempfile.TemporaryDirectory() as tmp:
++            root = Path(tmp)
++            shared = root / "shared"
++            for code in ("en", "de", "fr", "es", "it"):
++                (shared / "lang" / code).mkdir(parents=True)
++            target = root / "mod/files/lang"
++            target.mkdir(parents=True)
++            sibling = target.parent / "opening.bnr"
++            sibling.write_bytes(b"banner")
++            (target / "stale").touch()
++            (shared / "lang/de/test").write_bytes(b"asset")
++            install(shared, target)
++            self.assertEqual((target / "de/test").read_bytes(), b"asset")
++            self.assertFalse((target / "stale").exists())
++            self.assertEqual(sibling.read_bytes(), b"banner")
++            (shared / "lang/en").rmdir()
++            with self.assertRaises(ValueError):
++                install(shared, target)
++            self.assertTrue((target / "de/test").is_file())
++
++    def test_fixed_language_installs_only_its_own(self):
++        with tempfile.TemporaryDirectory() as tmp:
++            root = Path(tmp)
++            for code in ("en", "de", "fr", "es", "it"):
++                (root / "shared/lang" / code).mkdir(parents=True)
++                (root / "shared/lang" / code / "bin").write_bytes(code.encode())
++            target = root / "mod/files/lang"
++            install(root / "shared", target, ("de",))
++            self.assertEqual(sorted(p.name for p in target.iterdir()), ["de"])
++            self.assertEqual((target / "de/bin").read_bytes(), b"de")
+diff --git a/tools/test_wii_locale.py b/tools/test_wii_locale.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..0abf8c19a18cd61b28367f8024f2441cd5875192
+--- /dev/null
++++ b/tools/test_wii_locale.py
+@@ -0,0 +1,130 @@
++import json
++import tempfile
++import unittest
++from pathlib import Path
++from xml.etree import ElementTree
++
++from tools.wii_locale import disc_image, write_header, write_localization, write_mod, write_text_tables
++
++
++class WiiLocaleTests(unittest.TestCase):
++    source = Path(__file__).resolve().parents[1] / "mods/wii-localization/interface.json"
++
++    def test_locales_emit_matching_descriptor_and_encoded_banner(self):
++        translations = json.loads(self.source.read_text(encoding="utf-8"))
++        with tempfile.TemporaryDirectory() as tmp:
++            for locale, strings in translations.items():
++                with self.subTest(locale=locale):
++                    output = Path(tmp) / locale
++                    base = Path(tmp) / "original.rvz"
++                    write_localization(self.source, locale, output)
++                    write_mod(output, base, f"{locale} localization")
++                    descriptor = json.loads((output / "game.json").read_text())
++                    self.assertEqual((output / descriptor["base-file"]).resolve(), base.resolve())
++                    patch = descriptor["riivolution"]["patches"][0]
++                    xml = ElementTree.parse(output / patch["xml"]).getroot()
++                    option = xml.find("options/section/option")
++                    self.assertEqual(option.get("id"), patch["options"][0]["option-id"])
++                    self.assertEqual(option.find("choice").get("name"), f"{locale} localization")
++                    self.assertEqual(xml.find("patch/file").get("disc"), "main.dol")
++                    header = (output / "include/wii_locale.h").read_text()
++                    for line in (1, 2):
++                        text = strings[line].encode("utf-16-be").hex()
++                        units = [f"0x{text[i:i+4]}" for i in range(0, len(text), 4)]
++                        self.assertIn(", ".join(units + ["0"]), header)
++                    self.assertIn(strings[3], header)
++
++    def test_wii_slots_and_five_translations(self):
++        mapping = json.loads(self.source.with_name("text_map.json").read_text())
++        records = json.loads(self.source.with_name("wii_text.json").read_text())
++        for record in records:
++            # an override replaces mapped text in the languages it names; a Wii-only text needs all five
++            if record.get("override"):
++                self.assertLessEqual(set(record["translations"]), {"en", "de", "fr", "es", "it"})
++            else:
++                self.assertEqual(set(record["translations"]), {"en", "de", "fr", "es", "it"})
++            for index in record["indices"]:
++                self.assertEqual(mapping["interface"][index] is not None, bool(record.get("override")))
++        # the save banner's title and play time come from the US slots past the Japanese table
++        self.assertEqual(mapping["interface"][264:268], [258, 259, 260, 261])
++        with tempfile.TemporaryDirectory() as tmp:
++            write_localization(self.source, "de-DE", Path(tmp))
++            header = (Path(tmp) / "include/wii_text.h").read_text()
++            for name, length in (("Interface", 301), ("PC", 24)):
++                values = header.split(f"s{name}Map[] = {{ ")[1].split(" };")[0]
++                self.assertEqual(len(values.split(", ")), length)
++
++    def test_override_keeps_mapped_text_in_other_languages(self):
++        with tempfile.TemporaryDirectory() as tmp:
++            folder = Path(tmp)
++            interface = [None] * 301
++            interface[10] = 9
++            (folder / "text_map.json").write_text(json.dumps({"interface": interface, "pc": [None] * 24}))
++            record = {"indices": [10], "meaning": "test", "override": True, "translations": {"de": "Ja"}}
++            (folder / "wii_text.json").write_text(json.dumps([record]))
++            write_text_tables(folder, folder / "wii_text.h")
++            self.assertIn('{ 0, "\\112\\141", 0, 0, 0 }', (folder / "wii_text.h").read_text())
++            # without "override" a mapped slot is a mistake
++            del record["override"]
++            (folder / "wii_text.json").write_text(json.dumps([record]))
++            with self.assertRaises(ValueError):
++                write_text_tables(folder, folder / "wii_text.h")
++
++    def test_global_interface_and_disc_banner(self):
++        import hashlib
++        from tools.wii_locale import SYSTEM_LOCALES, opening_banner
++        strings = json.loads(self.source.read_text())
++        with tempfile.TemporaryDirectory() as tmp:
++            target = Path(tmp) / "global.h"
++            write_header(self.source, "global", target)
++            header = target.read_text()
++            for i, locale in enumerate(SYSTEM_LOCALES):
++                self.assertIn(f"sInterfaceRow{i}", header)
++                self.assertIn(strings[locale][3], header)
++        original = bytearray(0x640)
++        original[0x40:0x48] = b"IMET\0\0\x06\0"
++        original[0x5c:0x60] = "日本".encode("utf-16-be")
++        changed = opening_banner(original, {2: "Menü"})
++        self.assertEqual(changed[0x5c:0xb0], original[0x5c:0xb0])
++        self.assertEqual(changed[0x104:0x10c], "Menü".encode("utf-16-be"))
++        self.assertEqual(changed[0x5f0:0x600], hashlib.md5(changed[:0x5f0] + bytes(16)).digest())
++        self.assertEqual(changed[0x600:], original[0x600:])
++        with self.assertRaises(ValueError):
++            opening_banner(original, {2: "a" * 42})
++
++    def test_gamecube_pad_mod_without_localization(self):
++        with tempfile.TemporaryDirectory() as tmp:
++            output = Path(tmp) / "wii-gcpad"
++            base = Path(tmp) / "original.rvz"
++            write_mod(output, base, "GameCube controller")
++            descriptor = json.loads((output / "game.json").read_text())
++            self.assertEqual(descriptor["display-name"], "Chibi-Robo! (Wii, GameCube controller)")
++            self.assertEqual((output / descriptor["base-file"]).resolve(), base.resolve())
++            self.assertFalse((output / "include/wii_locale.h").exists())
++
++    def test_disc_only_or_fully_extracted(self):
++        with tempfile.TemporaryDirectory() as tmp:
++            folder = Path(tmp)
++            (folder / "sys").mkdir()
++            dol = folder / "sys/main.dol"
++            dol.touch()
++            with self.assertRaises(ValueError):
++                disc_image(folder)
++            (folder / "sys/boot.bin").touch()
++            (folder / "files").mkdir()
++            self.assertEqual(disc_image(folder), dol)
++            image = folder / "Chibi-Robo (Japan).RVZ"
++            image.touch()
++            self.assertEqual(disc_image(folder), image)
++
++    def test_rejects_overlong_banner_and_invalid_game_text(self):
++        with tempfile.TemporaryDirectory() as tmp:
++            root = Path(tmp)
++            source = root / "locale.json"
++            for index, value in ((1, "x" * 32), (2, "😀" * 16), (3, "a\0b"), (4, "é")):
++                with self.subTest(index=index):
++                    strings = ["test"] * 6
++                    strings[index] = value
++                    source.write_text(json.dumps({"test": strings}))
++                    with self.assertRaises(ValueError):
++                        write_header(source, "test", root / "locale.h")
+diff --git a/tools/test_wii_stage_names.py b/tools/test_wii_stage_names.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..05ddc82852c1f182518d1eb660e32e1b31e689cf
+--- /dev/null
++++ b/tools/test_wii_stage_names.py
+@@ -0,0 +1,169 @@
++"""Synthetic retail-style metadata, with no game text or other disc assets."""
++
++import struct
++import os
++import hashlib
++import tempfile
++import unittest
++from pathlib import Path
++from unittest.mock import patch
++
++from tools.wii_stage_names import build_overlay, write_overlay
++
++
++def local_file(names=None, marker=b"W"):
++    names = names or {}
++    data = bytearray(84)
++    for slot in range(21):
++        if slot in (15, 16, 17):
++            continue
++        start = len(data)
++        struct.pack_into("<I", data, slot * 4, start)
++        if slot not in (11, 13, 14):
++            data.extend(marker + bytes([slot]))
++            continue
++        count = {11: 64, 13: 9, 14: 30}[slot]
++        fields = 2 if slot == 14 else 1
++        data.extend(bytes(count * fields * 4))
++        for field in range(fields):
++            for index in range(count):
++                raw = names.get((slot, index, field), f"Field{slot}-{index}-{field}".encode())
++                pointer = start + 4 * (fields * index + field)
++                struct.pack_into("<I", data, pointer, len(data))
++                data.extend(raw + b"\0")
++    collision = marker + b"coll"
++    script = marker + b"script"
++    data_pad = bytes((-len(data)) % 4)
++    collision_pad = bytes((-len(collision)) % 4)
++    collision_pos = len(data) + len(data_pad)
++    script_pos = collision_pos + len(collision) + len(collision_pad)
++    header = struct.pack("<6I", 0, len(data), collision_pos, len(collision), script_pos, len(script))
++    return header + data + data_pad + collision + collision_pad + script + b"\xfa"
++
++
++def word(data, offset):
++    return struct.unpack_from("<I", data, offset)[0]
++
++
++def cell(blob, slot, index, field=0):
++    return 24 + word(blob, 24 + slot * 4) + 4 * ((2 if slot == 14 else 1) * index + field)
++
++
++def value(blob, slot, index, field=0):
++    start = 24 + word(blob, cell(blob, slot, index, field))
++    return blob[start:blob.index(b"\0", start)]
++
++
++class WiiStageNamesTest(unittest.TestCase):
++    def test_write_overlay_protects_inputs_and_existing_output(self):
++        with tempfile.TemporaryDirectory() as folder:
++            root = Path(folder)
++            wii, gc, output = root / "wii.bin", root / "gc.bin", root / "out.bin"
++            base = local_file()
++            wii.write_bytes(base)
++            donor = local_file({(11, 0, 0): b"Changed"})
++            gc.write_bytes(donor)
++            output.write_bytes(b"previous output")
++            for alias in (wii, gc):
++                with self.assertRaisesRegex(ValueError, "different from both inputs"):
++                    write_overlay(gc, wii, alias)
++            with self.assertRaisesRegex(ValueError, "original R24J01"):
++                write_overlay(gc, wii, output)
++            self.assertEqual(output.read_bytes(), b"previous output")
++            # Only the private integration test can use the genuine target. Pin
++            # this synthetic file's digest to exercise the same guarded writer.
++            with patch("tools.wii_stage_names.R24J01_GLOBALS_SHA256", hashlib.sha256(base).hexdigest()):
++                nested = root / "files" / "bin" / "globals.bin"
++                write_overlay(gc, wii, nested)
++                self.assertEqual(value(nested.read_bytes(), 11, 0), b"Changed")
++                gc.write_bytes(b"truncated")
++                with self.assertRaisesRegex(ValueError, "truncated"):
++                    write_overlay(gc, wii, output)
++                self.assertEqual(output.read_bytes(), b"previous output")
++                gc.write_bytes(donor)
++                with patch("tools.wii_stage_names.os.replace", side_effect=OSError("replace failed")):
++                    with self.assertRaisesRegex(OSError, "replace failed"):
++                        write_overlay(gc, wii, output)
++                self.assertEqual({p.name for p in root.iterdir()}, {"wii.bin", "gc.bin", "out.bin", "files"})
++                self.assertEqual(output.read_bytes(), b"previous output")
++            self.assertEqual(wii.read_bytes(), base)
++            self.assertEqual(gc.read_bytes(), donor)
++
++    def test_output_cannot_be_a_hardlink_to_input(self):
++        with tempfile.TemporaryDirectory() as folder:
++            root = Path(folder)
++            wii, gc, alias = root / "wii.bin", root / "gc.bin", root / "alias.bin"
++            wii.write_bytes(local_file())
++            gc.write_bytes(local_file(marker=b"G"))
++            try:
++                os.link(gc, alias)
++            except OSError as exc:
++                self.skipTest(f"hard links unavailable: {exc}")
++            with self.assertRaisesRegex(ValueError, "different from both inputs"):
++                write_overlay(gc, wii, alias)
++
++    def test_names_only(self):
++        base = local_file()
++        gc = local_file({(11, 7, 0): b"New actor", (13, 4, 0): b"New costume",
++                         (14, 29, 0): b"New stage", (14, 29, 1): b"GC-only description"}, b"G")
++        out, report = build_overlay(base, gc)
++        changed = [(11, 7), (13, 4), (14, 29)]
++        self.assertEqual(report["changed"], ["actor[7]", "costume[4]", "stage[29]"])
++        for slot, index in changed:
++            self.assertEqual(value(out, slot, index), value(gc, slot, index))
++        self.assertEqual(value(out, 14, 29, 1), value(base, 14, 29, 1))
++        # Compare every original metadata byte except the three changed offset words.
++        original_data_length = word(base, 4)
++        restored = bytearray(out[24:24 + original_data_length])
++        for slot, index in changed:
++            pos = cell(base, slot, index)
++            self.assertGreaterEqual(word(out, pos), original_data_length)
++            restored[pos - 24:pos - 20] = base[pos:pos + 4]
++        self.assertEqual(restored, base[24:24 + original_data_length])
++        self.assertEqual(out[24 + word(out, 8):], base[24 + word(base, 8):])
++        self.assertEqual(word(out, 8) % 4, 0)
++        self.assertEqual(word(out, 16) - word(out, 8), word(base, 16) - word(base, 8))
++        self.assertEqual(out, build_overlay(base, gc)[0])
++
++    def test_empty_unsupported_and_length(self):
++        base = local_file()
++        gc = local_file({(11, 0, 0): b"", (11, 1, 0): b"bad\n", (11, 2, 0): b"\\C88888888",
++                         (11, 3, 0): b"prixe\x81", (11, 4, 0): b"$", (11, 5, 0): b"a" * 128,
++                         (11, 6, 0): b"a" * 127, (13, 8, 0): b"M\xe9lodie",
++                         (14, 0, 0): b"x" * 21, (14, 1, 0): b"x" * 20})
++        out, report = build_overlay(base, gc)
++        self.assertEqual(report["changed"], ["actor[6]", "stage[1]"])
++        self.assertEqual(report["kept for empty donor"], ["actor[0]"])
++        self.assertEqual(report["kept for length"], ["actor[5]", "stage[0]"])
++        self.assertEqual(len(report["kept for unsupported characters"]), 5)
++        for i in range(6):
++            self.assertEqual(value(out, 11, i), value(base, 11, i))
++        folded, report = build_overlay(base, gc, fold=True)
++        self.assertEqual(report["folded"], ["costume[8]"])
++        self.assertEqual(value(folded, 13, 8), b"Melodie")
++        self.assertEqual(len(report["kept for unsupported characters"]), 4)
++
++    def test_unchanged_donor_preserves_whole_file(self):
++        base = local_file({(11, 1, 0): b"\x83\x41"})
++        self.assertEqual(build_overlay(base, base)[0], base)
++
++    def test_invalid_donor(self):
++        base = local_file()
++        invalid = []
++        for pos, replacement in [(4, 0xfffffff0), (12, 0xfffffff0), (16, 3),
++                                 (24 + 11 * 4, len(base)), (24 + 14 * 4, 0),
++                                 (cell(base, 11, 0), word(base, cell(base, 11, 0)) + 4),
++                                 (cell(base, 14, 1, 1), word(base, cell(base, 14, 0, 1)))]:
++            copy = bytearray(base)
++            struct.pack_into("<I", copy, pos, replacement)
++            invalid.append(copy)
++        copy = bytearray(base)
++        copy[24 + word(base, 24 + 12 * 4) - 1] = 0x41  # final actor terminator
++        invalid.extend((copy, base[:23], base[:-12], base + bytes(4)))
++        for i, corrupt in enumerate(invalid):
++            with self.subTest(case=i), self.assertRaises(ValueError):
++                build_overlay(base, corrupt)
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/tools/test_wii_text_map.py b/tools/test_wii_text_map.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..25078cc27b4e20f5d678939b03e04b27884a5f81
+--- /dev/null
++++ b/tools/test_wii_text_map.py
+@@ -0,0 +1,15 @@
++import unittest
++
++from tools.wii_text_map import match_table
++
++
++class TextMapTests(unittest.TestCase):
++    def test_reordered_repeated_missing_and_skipped(self):
++        gc = [b"red", b"blue", b"red", b""]
++        wii = [b"blue", b"", b"red", b"blue", b"Blue", b"blue"]
++        self.assertEqual(match_table(wii, gc, skip=1),
++                         ([None, 3, None, 1, None, 1], [2]))
++
++    def test_duplicate_empty_and_significant_trailing_space(self):
++        self.assertEqual(match_table([b"", b"x ", b"x"], [b"", b"x", b""]),
++                         ([None, None, 1], [0]))
+diff --git a/tools/wii_iso.py b/tools/wii_iso.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..64be8d78d0de1a4b18bb87733c9851aeabe3d2d1
+--- /dev/null
++++ b/tools/wii_iso.py
+@@ -0,0 +1,175 @@
++"""Build a Wii disc image from the original disc and a mod's main.dol and files.
++
++dtk extracts the original once; every build then links a fresh tree from it, puts the mod's files in, and has
++Wiimms ISO Tools (wit) write and encrypt the image. Ticket and TMD come out fake-signed, which Dolphin accepts.
++
++A translation patch made for the retail disc (its main.dol and file folders, as Riivolution loads them) can come
++along: its files go onto the disc as they are, and its changes to main.dol move over to the mod's main.dol.
++"""
++
++import argparse
++import os
++import shutil
++import struct
++import subprocess
++from pathlib import Path
++from typing import Optional
++
++
++def overlay_files(folder: Path) -> list:
++    """The files a folder puts onto the disc's files/, a main.dol at its top excepted. A link that leads out of the
++    folder is left out: a downloaded patch must not pull other files from this computer into the image."""
++    if not folder.is_dir():
++        return []
++    inside = folder.resolve()
++    return sorted(
++        p
++        for p in folder.rglob("*")
++        if p.is_file() and p != folder / "main.dol" and p.resolve().is_relative_to(inside)
++    )
++
++
++def disc_path(files: Path, relative: Path) -> Path:
++    """`relative` under `files`, spelled the way the disc spells each part it already has: the disc's file system
++    ignores case, so a patch's item/ is the disc's Item/."""
++    at = files
++    for part in relative.parts:
++        match = None
++        if at.is_dir():
++            match = next((entry for entry in at.iterdir() if entry.name.lower() == part.lower()), None)
++        at = match or at / part
++    return at
++
++
++def prepare_tree(original: Path, root: Path, dol: Path, files: Path, patch: Optional[Path] = None) -> int:
++    """Link `root` from `original`, then replace sys/main.dol and lay `patch` and then the mod's `files` over files/;
++    the original stays untouched. Like Riivolution, the patch only replaces files the disc has and the mod may add
++    new ones. Returns the number of files replaced or added."""
++    if root.exists():
++        shutil.rmtree(root)
++    shutil.copytree(original, root, copy_function=os.link)
++    replaced = {root / "sys/main.dol": dol}
++    for folder, may_add in ((patch, False), (files, True)):
++        for source in overlay_files(folder) if folder else []:
++            target = disc_path(root / "files", source.relative_to(folder))
++            if may_add or target.is_file():
++                replaced[target] = source
++            else:
++                print(f"skipped {source}: the disc has no such file")
++    for target, source in replaced.items():
++        # unlink first: target is a hard link into the original tree
++        if target.exists():
++            target.unlink()
++        target.parent.mkdir(parents=True, exist_ok=True)
++        shutil.copy2(source, target)
++    return len(replaced)
++
++
++def dol_sections(dol: bytes) -> list:
++    """(file offset, size) of each of a DOL's 18 sections; the header holds offsets, then addresses, then sizes."""
++    offsets = struct.unpack(">18I", dol[0:72])
++    sizes = struct.unpack(">18I", dol[144:216])
++    return list(zip(offsets, sizes))
++
++
++def port_dol(retail: bytes, patched: bytes, target: bytes) -> bytes:
++    """Carry the changes `patched` makes to `retail` over to `target`, a main.dol built differently from retail.
++
++    Each changed stretch is found in the same section of `target` by its retail bytes plus as much unchanged
++    retail context as it takes to make the match unique, never fewer than 16 bytes in all. Raises ValueError for a
++    change it cannot place, so the image never gets a half-ported main.dol."""
++    if retail[:0x100] != patched[:0x100]:
++        raise ValueError("the patch's main.dol has another layout than the disc's: it was made for another release")
++    sections = dol_sections(retail)
++    target_sections = dol_sections(target)
++    out = bytearray(target)
++    for index, (offset, size) in enumerate(sections):
++        end = offset + size
++        changes = []
++        at = offset
++        while at < end:
++            if retail[at] == patched[at]:
++                at += 1
++                continue
++            start = at
++            while at < end and (retail[at] != patched[at] or retail[at : at + 8] != patched[at : at + 8]):
++                at += 1
++            changes.append((start, at - start))
++        target_start, target_size = target_sections[index]
++        section = target[target_start : target_start + target_size]
++        for start, length in changes:
++            place = _unique_place(retail, offset, end, start, length, section)
++            if place is None:
++                raise ValueError(f"cannot place the patch's change at main.dol offset 0x{start:x} in the mod's main.dol")
++            out[target_start + place : target_start + place + length] = patched[start : start + length]
++    return bytes(out)
++
++
++def _unique_place(retail: bytes, begin: int, end: int, start: int, length: int, section: bytes):
++    """Where retail[start:start+length] sits in `section`, judged by the least context that occurs once in both
++    the retail section and `section`; context found once in the mod but twice in retail could be the other copy."""
++    sizes = range(0, 129, 4)
++    for left, right in sorted(((l, r) for l in sizes for r in sizes), key=lambda lr: (lr[0] + lr[1], lr[0])):
++        if left + length + right < 16 or start - left < begin or start + length + right > end:
++            continue
++        needle = retail[start - left : start + length + right]
++        found = section.find(needle)
++        if found < 0 or section.find(needle, found + 1) >= 0:
++            continue
++        first = retail.find(needle, begin, end)
++        if retail.find(needle, first + 1, end) < 0:
++            return found + left
++    return None
++
++
++def extract_original(dtk: Path, disc: Path, original: Path) -> None:
++    """Extract the disc's data partition once; extract again when the disc image changes."""
++    stamp = original.with_name(original.name + ".source")
++    info = disc.stat()
++    key = f"{disc.resolve()} {info.st_size} {info.st_mtime_ns}\n"
++    if (original / "sys/main.dol").is_file() and stamp.is_file() and stamp.read_text() == key:
++        return
++    if original.exists():
++        shutil.rmtree(original)
++    original.parent.mkdir(parents=True, exist_ok=True)
++    subprocess.run([str(dtk), "disc", "extract", "-q", str(disc), str(original)], check=True)
++    stamp.write_text(key)
++
++
++def write_depfile(out: Path, *folders: Path) -> None:
++    """List the mod's files and folders for ninja, so adding, changing or removing one rebuilds the image."""
++    deps = [p for folder in folders if folder.is_dir() for p in [folder] + sorted(folder.rglob("*"))]
++
++    def escape(path: Path) -> str:
++        return path.as_posix().replace(" ", "\\ ")
++
++    out.with_name(out.name + ".d").write_text(f"{escape(out)}: " + " ".join(escape(p) for p in deps) + "\n")
++
++
++def main() -> None:
++    parser = argparse.ArgumentParser(description=__doc__)
++    parser.add_argument("--dtk", type=Path, required=True)
++    parser.add_argument("--wit", type=Path, required=True)
++    parser.add_argument("--disc", type=Path, required=True, help="the original disc image")
++    parser.add_argument("--dol", type=Path, required=True, help="the mod's main.dol")
++    parser.add_argument("--files", type=Path, required=True, help="the mod's files/ folder, may be empty")
++    parser.add_argument("--work", type=Path, required=True, help="folder for the extracted and the patched tree")
++    parser.add_argument("--out", type=Path, required=True, help="the disc image to write")
++    parser.add_argument("--patch", type=Path, help="a translation patch folder for the retail disc: main.dol and files")
++    args = parser.parse_args()
++    original = args.work / "original"
++    extract_original(args.dtk, args.disc, original)
++    dol = args.dol
++    if args.patch:
++        retail = (original / "sys/main.dol").read_bytes()
++        patched = (args.patch / "main.dol").read_bytes()
++        dol = args.work / "main.dol"
++        dol.write_bytes(port_dol(retail, patched, args.dol.read_bytes()))
++    count = prepare_tree(original, args.work / "root", dol, args.files, args.patch)
++    print(f"{count} file(s) from the mod")
++    subprocess.run([str(args.wit), "copy", "--overwrite", str(args.work / "root"), str(args.out)], check=True)
++    write_depfile(args.out, *[folder for folder in (args.files, args.patch) if folder])
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/tools/wii_lang_data.py b/tools/wii_lang_data.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..4d48af7d6ebd413e61cc28d739ff7d277764443b
+--- /dev/null
++++ b/tools/wii_lang_data.py
+@@ -0,0 +1,1489 @@
++#!/usr/bin/env python3
++"""Build per-language override files for Chibi-Robo! Wii (R24J01) from GC US/PAL discs."""
++
++from __future__ import annotations
++
++import argparse
++import difflib
++import json
++import os
++import shutil
++import struct
++import subprocess
++import sys
++from pathlib import Path
++from typing import Dict, List, Optional, Sequence, Tuple
++
++LANG_SPECS: Dict[str, Tuple[str, str, str]] = {
++    # code: (disc_key, gc_bin_sub, gc_tpl_suffix)
++    "en": ("us", "e", "us"),
++    "de": ("pal", "g", "ge"),
++    "fr": ("pal", "f", "fr"),
++    "es": ("pal", "s", "sp"),
++    "it": ("pal", "i", "it"),
++}
++
++# globals.bin data section text tables: (header_off, stride, ptr_offsets, name, count)
++GLOBALS_TEXT_TABLES: Tuple[Tuple[int, int, Tuple[int, ...], str, int], ...] = (
++    (0x28, 20, (0, 4), "items", 159),
++    (0x2C, 4, (0,), "actors", 64),
++    (0x30, 12, (0, 4), "attachments", 9),
++    (0x34, 4, (0,), "costumes", 9),
++    (0x38, 8, (0,), "stages", 30),
++    (0x48, 12, (0, 4), "utilibots", 20),
++    (0x4C, 12, (0, 4), "stickers", 24),
++    (0x50, 8, (0, 4), "status_overview", 13),
++)
++
++UNARY_EXPRS = {6, 28, 29, 32, 100, 102, 103, 108, 109, 110, 111, 117, 201, 202, 203}
++BINARY_EXPRS = {
++    0, 1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 200,
++}
++ZERO_EXPRS = {30, 31, 101, 104, 105, 106, 107, 112, 113, 114, 115, 116}
++
++
++def skip_expr(b: bytes, pos: int, addrs_out: List[int]) -> Tuple[int, Optional[int]]:
++    op = b[pos]
++    pos += 1
++    if op == 23:
++        return pos + 2, struct.unpack_from("<h", b, pos)[0]
++    if op == 24:
++        return pos + 4, struct.unpack_from("<i", b, pos)[0]
++    if op == 25:
++        addrs_out.append(pos)
++        return pos + 4, struct.unpack_from("<I", b, pos)[0]
++    if op in (26, 27):
++        return pos + 1, None
++    if op in UNARY_EXPRS:
++        pos, _ = skip_expr(b, pos, addrs_out)
++        return pos, None
++    if op in BINARY_EXPRS:
++        pos, _ = skip_expr(b, pos, addrs_out)
++        pos, _ = skip_expr(b, pos, addrs_out)
++        return pos, None
++    if op == 204:
++        pos, _ = skip_expr(b, pos, addrs_out)
++        pos, _ = skip_expr(b, pos, addrs_out)
++        pos, _ = skip_expr(b, pos, addrs_out)
++        return pos, None
++    if op in ZERO_EXPRS:
++        return pos, None
++    raise ValueError(f"Unknown expr op {op} at 0x{pos - 1:x}")
++
++
++def eval_n(b: bytes, pos: int, n: int, addrs_out: List[int]) -> Tuple[int, List[Optional[int]]]:
++    vals: List[Optional[int]] = []
++    for _ in range(n):
++        pos, v = skip_expr(b, pos, addrs_out)
++        vals.append(v)
++    return pos, vals
++
++
++def _decode_non_flow_cmd(b: bytes, cmd: int, pos: int, addr_ofs: List[int]) -> int:
++    if cmd == 4:
++        n_args = 1 if 15 <= b[pos] <= 22 else 2
++        pos, _ = eval_n(b, pos, n_args, addr_ofs)
++    elif cmd == 13:
++        pos += 2
++    elif cmd in (14, 15):
++        pass
++    elif cmd == 16:
++        pos, _ = eval_n(b, pos, 1, addr_ofs)
++    elif cmd in (17, 18):
++        pos, _ = eval_n(b, pos, 1, addr_ofs)
++        while True:
++            pos, [a] = eval_n(b, pos, 1, addr_ofs)
++            if a == -1:
++                break
++    elif cmd == 19:
++        pos, _ = eval_n(b, pos, 1, addr_ofs)
++        while True:
++            pos, [a] = eval_n(b, pos, 1, addr_ofs)
++            if a == -1:
++                break
++            pos, _ = eval_n(b, pos, 2, addr_ofs)
++    elif cmd == 20:
++        pos, _ = eval_n(b, pos, 2, addr_ofs)
++    elif cmd == 26:
++        pos, _ = eval_n(b, pos, 1, addr_ofs)
++    elif cmd == 21:
++        pos, _ = eval_n(b, pos, 10, addr_ofs)
++    elif cmd == 22:
++        length = struct.unpack_from("<H", b, pos)[0]
++        end = pos + length
++        p = pos + 2
++        while p < end:
++            p, _ = skip_expr(b, p, addr_ofs)
++        if p != end:
++            raise ValueError(f"CALL length mismatch at 0x{pos - 1:x}")
++        pos = end
++    elif cmd == 23:
++        pos, [sub] = eval_n(b, pos, 1, addr_ofs)
++        if sub == 211 or sub in (240, 243, 251, 252):
++            pos, _ = eval_n(b, pos, 4, addr_ofs)
++        elif sub in (207, 227):
++            pos, _ = eval_n(b, pos, 5, addr_ofs)
++        elif sub in (208, 228, 229, 204):
++            pos, _ = eval_n(b, pos, 3, addr_ofs)
++        elif sub in (220, 236, 237, 238):
++            pos, _ = eval_n(b, pos, 1, addr_ofs)
++        elif sub == 209:
++            pos, _ = eval_n(b, pos, 2, addr_ofs)
++        elif sub == 230:
++            pass
++        elif sub == 232:
++            pos, [m2] = eval_n(b, pos, 1, addr_ofs)
++            if m2 in (2, 3, 4):
++                pos, _ = eval_n(b, pos, 1, addr_ofs)
++        else:
++            raise ValueError(f"Unknown CAMERA sub {sub} at 0x{pos - 1:x}")
++    elif cmd in (24, 46):
++        pos, [sub] = eval_n(b, pos, 1, addr_ofs)
++        if sub in (200, 204):
++            pos, _ = eval_n(b, pos, 2 if sub == 204 else 1, addr_ofs)
++        elif sub in (205, 206, 244, 221, 219, 224, 233, 246):
++            pos, _ = eval_n(b, pos, 1, addr_ofs)
++        elif sub not in (201, 242, 202, 239, 203, 225, 234, 241, 245):
++            raise ValueError(f"Unknown WAIT/CHECK sub {sub} at 0x{pos - 1:x}")
++    elif cmd == 25:
++        pos, _ = eval_n(b, pos, 6, addr_ofs)
++    elif cmd == 27:
++        pos, _ = eval_n(b, pos, 2, addr_ofs)
++    elif cmd == 28:
++        pos, [_, mode] = eval_n(b, pos, 2, addr_ofs)
++        if mode in (205, 208):
++            pos, _ = eval_n(b, pos, 1, addr_ofs)
++        elif mode == 207:
++            pos, _ = eval_n(b, pos, 2, addr_ofs)
++        elif mode != 225:
++            raise ValueError(f"Unknown MDIR mode {mode} at 0x{pos - 1:x}")
++        pos, _ = eval_n(b, pos, 2, addr_ofs)
++    elif cmd == 29:
++        pos, _ = eval_n(b, pos, 2, addr_ofs)
++    elif cmd == 30:
++        pos, _ = eval_n(b, pos, 1, addr_ofs)
++    elif cmd == 31:
++        pos, [_, sub] = eval_n(b, pos, 2, addr_ofs)
++        if sub in (0xDB, 0xCF, 0xE3):
++            pos, _ = eval_n(b, pos, 3, addr_ofs)
++        else:
++            raise ValueError(f"Unknown LIGHT sub {sub} at 0x{pos - 1:x}")
++    elif cmd == 32:
++        pos, [mid] = eval_n(b, pos, 1, addr_ofs)
++        if mid == 1000:
++            pos, _ = eval_n(b, pos, 1, addr_ofs)
++        elif mid == 1001:
++            pos, _ = eval_n(b, pos, 2, addr_ofs)
++    elif cmd == 33:
++        pos, _ = eval_n(b, pos, 5, addr_ofs)
++    elif cmd == 34:
++        pos, _ = eval_n(b, pos, 7, addr_ofs)
++    elif cmd == 36:
++        pos, _ = eval_n(b, pos, 2, addr_ofs)
++        saved = (pos, len(addr_ofs))
++        try:
++            pos, _ = eval_n(b, pos, 2, addr_ofs)
++        except ValueError:
++            pos = saved[0]
++            del addr_ofs[saved[1]:]
++    elif cmd == 37:
++        pos = b.index(0, pos) + 1
++    elif cmd == 38:
++        pos, [_, sub] = eval_n(b, pos, 2, addr_ofs)
++        if sub == 207:
++            pos, _ = eval_n(b, pos, 7, addr_ofs)
++        elif sub == 208:
++            pos, _ = eval_n(b, pos, 8, addr_ofs)
++        elif sub == 220:
++            pos, [_, depth] = eval_n(b, pos, 2, addr_ofs)
++            if depth is None:
++                raise ValueError("dynamic PTCL depth")
++            pos, _ = eval_n(b, pos, min(depth, 16), addr_ofs)
++        elif sub != 210:
++            raise ValueError(f"Unknown PTCL sub {sub} at 0x{pos - 1:x}")
++    elif cmd == 39:
++        pos, _ = eval_n(b, pos, 3, addr_ofs)
++    elif cmd == 40:
++        pos, _ = eval_n(b, pos, 4, addr_ofs)
++    elif cmd == 41:
++        pos, _ = eval_n(b, pos, 5, addr_ofs)
++    elif cmd == 42:
++        pos, [mode] = eval_n(b, pos, 1, addr_ofs)
++        if mode in (201, 242):
++            pos, _ = eval_n(b, pos, 9, addr_ofs)
++        elif mode == 202:
++            pos, _ = eval_n(b, pos, 17, addr_ofs)
++        elif mode == 239:
++            pos, _ = eval_n(b, pos, 10, addr_ofs)
++        elif mode == 226:
++            pos, [part] = eval_n(b, pos, 1, addr_ofs)
++            if part in (0, 1, 2):
++                pos, _ = eval_n(b, pos, 1, addr_ofs)
++            elif part == 3:
++                pos, _ = eval_n(b, pos, 4, addr_ofs)
++            elif part == 4:
++                pos, [idx] = eval_n(b, pos, 1, addr_ofs)
++                if idx == -3:
++                    pos, _ = eval_n(b, pos, 1, addr_ofs)
++        elif mode == 234:
++            pos, _ = eval_n(b, pos, 5, addr_ofs)
++        elif mode == 241:
++            pos, _ = eval_n(b, pos, 7, addr_ofs)
++        else:
++            raise ValueError(f"Unknown SCRN mode {mode} at 0x{pos - 1:x}")
++    elif cmd == 44:
++        pos, [_, sub] = eval_n(b, pos, 2, addr_ofs)
++        if sub in (2, 3):
++            pos, _ = eval_n(b, pos, 1, addr_ofs)
++        elif sub == 4:
++            pos, _ = eval_n(b, pos, 2, addr_ofs)
++        elif sub not in (0, 1, 5, 6, 0xF5):
++            raise ValueError(f"Unknown SFX sub {sub} at 0x{pos - 1:x}")
++    elif cmd == 45:
++        pos, _ = eval_n(b, pos, 2, addr_ofs)
++    elif cmd == 47:
++        pos, _ = eval_n(b, pos, 2, addr_ofs)
++    elif cmd == 48:
++        pos, [sub] = eval_n(b, pos, 1, addr_ofs)
++        if sub == 207:
++            pos, _ = eval_n(b, pos, 2, addr_ofs)
++        elif sub in (208, 219):
++            pos, _ = eval_n(b, pos, 4, addr_ofs)
++        elif sub not in (239, 209):
++            raise ValueError(f"Unknown WIN sub {sub} at 0x{pos - 1:x}")
++    elif cmd == 49:
++        pos, [path] = eval_n(b, pos, 1, addr_ofs)
++        if path != 0:
++            pos, _ = eval_n(b, pos, 5, addr_ofs)
++    else:
++        raise ValueError(f"Unknown cmd {cmd} at 0x{pos - 1:x}")
++    return pos
++
++
++def parse_script_from(
++    b: bytes,
++    entry_offsets: Sequence[int],
++    base_offset: int = 0,
++    follow_run: bool = True,
++):
++    """Walk reachable CEvt bytecode from entry_offsets.
++
++    Returns (insts, jumps, addr_ofs, msgs) where:
++      insts: sorted [(start_off, norm_token, msg_info_or_None, run_target_or_None)]
++      jumps: [file_off_of_u32_target]
++      addr_ofs: [file_off_of_u32_ADDRESS_OF]
++      msgs: [(cmd_off, cmd, next_off_field, msg_start, msg_end)]
++    """
++    visited = set()
++    queue = [o for o in entry_offsets if o != 0]
++    insts = []
++    jumps: List[int] = []
++    addr_ofs: List[int] = []
++    msgs = []
++
++    while queue:
++        pos = queue.pop()
++        while pos not in visited:
++            visited.add(pos)
++            if pos < 0 or pos >= len(b):
++                raise ValueError(f"PC out of bounds: 0x{pos:x}")
++            start = pos
++            cmd = b[pos]
++            pos += 1
++            a0 = len(addr_ofs)
++            msg = None
++            run_tgt = None
++            stop = False
++
++            if cmd in (1, 2):
++                tok: Tuple[object, ...] = (cmd,)
++                stop = True
++            elif cmd in (3, 7, 11):
++                jumps.append(pos)
++                tgt = struct.unpack_from("<I", b, pos)[0]
++                if tgt != 0:
++                    queue.append(base_offset + tgt)
++                tok = (cmd, tgt != 0)
++                pos += 4
++                stop = True
++            elif cmd == 12:
++                jumps.append(pos)
++                tgt = struct.unpack_from("<I", b, pos)[0]
++                if tgt != 0:
++                    run_tgt = base_offset + tgt
++                    if follow_run:
++                        queue.append(run_tgt)
++                tok = ("RUN",)
++                pos += 4
++            elif cmd in (5, 6, 8, 9, 10):
++                p0 = pos
++                pos, _ = skip_expr(b, pos, addr_ofs)
++                expr_key: object = b[p0:pos] if len(addr_ofs) == a0 else (cmd, "addr")
++                jumps.append(pos)
++                tgt = struct.unpack_from("<I", b, pos)[0]
++                if tgt != 0:
++                    queue.append(base_offset + tgt)
++                tok = (cmd, expr_key)
++                pos += 4
++            elif cmd in (35, 43):
++                jumps.append(pos)
++                nxt = struct.unpack_from("<I", b, pos)[0]
++                msg_start = pos + 4
++                msg_end = base_offset + nxt
++                if msg_end < msg_start or msg_end > len(b):
++                    raise ValueError(f"Invalid MSG/SELECT next 0x{msg_end:x} at 0x{start:x}")
++                tok = ("MSG", cmd)
++                msg = (start, cmd, pos, msg_start, msg_end)
++                msgs.append(msg)
++                pos = msg_end
++            else:
++                p0 = pos
++                pos = _decode_non_flow_cmd(b, cmd, pos, addr_ofs)
++                tok = (cmd, b[p0:pos] if len(addr_ofs) == a0 else len(b[p0:pos]))
++
++            insts.append((start, tok, msg, run_tgt))
++            if stop:
++                break
++
++    insts.sort(key=lambda x: x[0])
++    msgs.sort(key=lambda m: m[3])
++    return insts, jumps, addr_ofs, msgs
++
++
++def extract_script_entries(b: bytes, is_globals: bool) -> Tuple[int, Dict[str, int]]:
++    entries: Dict[str, int] = {}
++    if is_globals:
++        scr_off, _ = struct.unpack_from("<2I", b, 16)
++        base = 0x18 + scr_off
++        i = 0
++        first_nz = len(b)
++        while base + i * 4 < first_nz:
++            val = struct.unpack_from("<I", b, base + i * 4)[0]
++            if val != 0:
++                first_nz = min(first_nz, base + val)
++                entries[f"g{i}"] = base + val
++            i += 1
++        return base, entries
++
++    hdr = struct.unpack_from("<13I", b, 0)
++    so_off = hdr[2]
++    idx = 0
++    while True:
++        val = struct.unpack_from("<I", b, so_off)[0]
++        if val == 0xFFFFFFFF:
++            break
++        if val != 0:
++            entries[f"s{idx}"] = val
++        idx += 1
++        so_off += 4
++    for hi in range(3, 9):
++        if hdr[hi] != 0:
++            entries[f"h{hi}"] = hdr[hi]
++    return 0, entries
++
++
++def map_globals_slots(bytes_a: bytes, bytes_b: bytes) -> Dict[str, str]:
++    """Map globals.bin script slots from bytes_a to bytes_b, handling insertions/deletions."""
++    base_a, ent_a = extract_script_entries(bytes_a, is_globals=True)
++    base_b, ent_b = extract_script_entries(bytes_b, is_globals=True)
++    keys_a = sorted(ent_a.keys(), key=lambda x: int(x[1:]))
++    keys_b = sorted(ent_b.keys(), key=lambda x: int(x[1:]))
++
++    def _sigs(b: bytes, base: int, ent: Dict[str, int], keys: List[str]):
++        out = []
++        for k in keys:
++            insts, _, _, msgs = parse_script_from(b, [ent[k]], base, follow_run=False)
++            toks = tuple(x[1] for x in insts)
++            calls = sum(1 for x in insts if x[3] is not None)
++            out.append((toks, len(msgs), calls))
++        return out
++
++    sigs_a = _sigs(bytes_a, base_a, ent_a, keys_a)
++    sigs_b = _sigs(bytes_b, base_b, ent_b, keys_b)
++    mapping: Dict[str, str] = {}
++    sm = difflib.SequenceMatcher(None, sigs_a, sigs_b, autojunk=False)
++    for tag, i1, i2, j1, j2 in sm.get_opcodes():
++        if tag == "equal":
++            for k in range(i2 - i1):
++                mapping[keys_a[i1 + k]] = keys_b[j1 + k]
++        elif tag == "replace":
++            if (i2 - i1) == (j2 - j1):
++                for k in range(i2 - i1):
++                    r = difflib.SequenceMatcher(
++                        None, sigs_a[i1 + k][0], sigs_b[j1 + k][0], autojunk=False
++                    ).ratio()
++                    if r >= 0.5:
++                        mapping[keys_a[i1 + k]] = keys_b[j1 + k]
++            else:
++                used_b: set[int] = set()
++                for ia in range(i1, i2):
++                    best_r, best_jb = 0.0, None
++                    for jb in range(j1, j2):
++                        if jb in used_b:
++                            continue
++                        r = difflib.SequenceMatcher(
++                            None, sigs_a[ia][0], sigs_b[jb][0], autojunk=False
++                        ).ratio()
++                        if r > best_r:
++                            best_r, best_jb = r, jb
++                    if best_r >= 0.8 and best_jb is not None:
++                        mapping[keys_a[ia]] = keys_b[best_jb]
++                        used_b.add(best_jb)
++    return mapping
++
++
++def align_by_structure(
++    bytes_a: bytes,
++    bytes_b: bytes,
++    is_globals: bool,
++    require_same_msg_bytes: bool = False,
++    slot_map: Optional[Dict[str, str]] = None,
++) -> Dict[int, Tuple[int, bytes]]:
++    """Align messages from bytes_a to bytes_b via entry slots + RUN pairing.
++
++    Returns {msg_start_a: (msg_start_b, msg_bytes_b)} only for unambiguous 1-to-1 matches.
++    """
++    base_a, ent_a = extract_script_entries(bytes_a, is_globals)
++    base_b, ent_b = extract_script_entries(bytes_b, is_globals)
++    if slot_map is None:
++        if is_globals:
++            slot_map = map_globals_slots(bytes_a, bytes_b)
++        else:
++            slot_map = {slot: slot for slot in ent_a if slot in ent_b}
++
++    cache_a: Dict[int, list] = {}
++    cache_b: Dict[int, list] = {}
++
++    def get_a(off: int):
++        if off not in cache_a:
++            cache_a[off] = parse_script_from(bytes_a, [off], base_a, follow_run=False)[0]
++        return cache_a[off]
++
++    def get_b(off: int):
++        if off not in cache_b:
++            cache_b[off] = parse_script_from(bytes_b, [off], base_b, follow_run=False)[0]
++        return cache_b[off]
++
++    pair_q: List[Tuple[int, int]] = []
++    seen_pairs = set()
++    for slot_a, slot_b in slot_map.items():
++        if slot_a in ent_a and slot_b in ent_b:
++            pair = (ent_a[slot_a], ent_b[slot_b])
++            if pair not in seen_pairs:
++                seen_pairs.add(pair)
++                pair_q.append(pair)
++
++    msg_cands: Dict[int, set] = {}
++    while pair_q:
++        oa, ob = pair_q.pop(0)
++        ia = get_a(oa)
++        ib = get_b(ob)
++        ta = [x[1] for x in ia]
++        tb = [x[1] for x in ib]
++        sm = difflib.SequenceMatcher(None, ta, tb, autojunk=False)
++        for tag, i1, i2, j1, j2 in sm.get_opcodes():
++            if tag == "equal":
++                for k in range(i2 - i1):
++                    xa, xb = ia[i1 + k], ib[j1 + k]
++                    if xa[2] is not None and xb[2] is not None:
++                        ma, mb = xa[2], xb[2]
++                        ba = bytes_a[ma[3]:ma[4]]
++                        bb = bytes_b[mb[3]:mb[4]]
++                        if not require_same_msg_bytes or ba == bb:
++                            msg_cands.setdefault(ma[3], set()).add((mb[3], bb))
++                    if xa[3] and xb[3]:
++                        pair = (xa[3], xb[3])
++                        if pair not in seen_pairs:
++                            seen_pairs.add(pair)
++                            pair_q.append(pair)
++            elif tag == "replace":
++                ma_list = [ia[i] for i in range(i1, i2) if ia[i][2] is not None]
++                mb_list = [ib[j] for j in range(j1, j2) if ib[j][2] is not None]
++                if len(ma_list) == len(mb_list) and len(ma_list) > 0:
++                    for xa, xb in zip(ma_list, mb_list):
++                        ma, mb = xa[2], xb[2]
++                        ba = bytes_a[ma[3]:ma[4]]
++                        bb = bytes_b[mb[3]:mb[4]]
++                        if not require_same_msg_bytes or ba == bb:
++                            msg_cands.setdefault(ma[3], set()).add((mb[3], bb))
++                ra_list = [ia[i] for i in range(i1, i2) if ia[i][3]]
++                rb_list = [ib[j] for j in range(j1, j2) if ib[j][3]]
++                if len(ra_list) == len(rb_list) and len(ra_list) > 0:
++                    for xa, xb in zip(ra_list, rb_list):
++                        pair = (xa[3], xb[3])
++                        if pair not in seen_pairs:
++                            seen_pairs.add(pair)
++                            pair_q.append(pair)
++
++    resolved: Dict[int, Tuple[int, bytes]] = {}
++    for moff_a, cands in msg_cands.items():
++        texts = {c[1] for c in cands}
++        if len(texts) == 1:
++            resolved[moff_a] = next(iter(cands))
++    return resolved
++
++
++def relocate_bytecode_region(
++    b: bytes,
++    entries: Sequence[int],
++    base_offset: int,
++    replacements: Dict[int, bytes],
++    extra_table_offsets: Sequence[int],
++) -> bytes:
++    """Apply message replacements to b[base_offset:] and relocate all offsets."""
++    _, jumps, addr_ofs, msgs = parse_script_from(b, entries, base_offset, follow_run=True)
++    msg_spans = []
++    for _, _, _, m_start, m_end in msgs:
++        if m_start in replacements and replacements[m_start] != b[m_start:m_end]:
++            msg_spans.append((m_start, m_end, replacements[m_start]))
++    msg_spans.sort(key=lambda x: x[0])
++
++    if not msg_spans:
++        return b
++
++    def reloc(old_abs: int) -> int:
++        delta = 0
++        for s, e, new_b in msg_spans:
++            if e <= old_abs:
++                delta += len(new_b) - (e - s)
++            else:
++                break
++        return old_abs + delta
++
++    out = bytearray(b)
++    # Relocate in-place on `out` BEFORE splicing bytes (offsets are still old offsets)
++    for off in extra_table_offsets:
++        val = struct.unpack_from("<I", out, off)[0]
++        if val != 0:
++            struct.pack_into("<I", out, off, reloc(base_offset + val) - base_offset)
++
++    for off in jumps:
++        val = struct.unpack_from("<I", out, off)[0]
++        if val != 0:
++            struct.pack_into("<I", out, off, reloc(base_offset + val) - base_offset)
++
++    for off in addr_ofs:
++        val = struct.unpack_from("<I", out, off)[0]
++        if val != 0:
++            struct.pack_into("<I", out, off, reloc(base_offset + val) - base_offset)
++
++    # Now splice replaced message spans
++    rebuilt = bytearray()
++    cursor = 0
++    for s, e, new_b in msg_spans:
++        rebuilt.extend(out[cursor:s])
++        rebuilt.extend(new_b)
++        cursor = e
++    rebuilt.extend(out[cursor:])
++    return bytes(rebuilt)
++
++
++def translate_stage_bin(
++    wii_bytes: bytes,
++    target_bytes: bytes,
++    jp_bytes: Optional[bytes] = None,
++) -> Tuple[bytes, Dict[str, object]]:
++    _, ent_wii = extract_script_entries(wii_bytes, is_globals=False)
++    _, _, _, wii_msgs = parse_script_from(wii_bytes, list(ent_wii.values()), 0, follow_run=True)
++
++    if jp_bytes is not None:
++        m_wj = align_by_structure(wii_bytes, jp_bytes, is_globals=False, require_same_msg_bytes=True)
++        m_jt = align_by_structure(jp_bytes, target_bytes, is_globals=False, require_same_msg_bytes=False)
++        repl: Dict[int, bytes] = {}
++        for m_start, (j_start, _) in m_wj.items():
++            if j_start in m_jt:
++                repl[m_start] = m_jt[j_start][1]
++    else:
++        m_wt = align_by_structure(wii_bytes, target_bytes, is_globals=False, require_same_msg_bytes=False)
++        repl = {m_start: txt for m_start, (_, txt) in m_wt.items()}
++
++    untranslated_indices = [
++        idx for idx, (_, _, _, m_start, _) in enumerate(wii_msgs) if m_start not in repl
++    ]
++    hdr = struct.unpack_from("<13I", wii_bytes, 0)
++    table_offs: List[int] = [4 * hi for hi in range(3, 9) if hdr[hi] != 0]
++    so_off = hdr[2]
++    while True:
++        val = struct.unpack_from("<I", wii_bytes, so_off)[0]
++        if val == 0xFFFFFFFF:
++            break
++        if val != 0:
++            table_offs.append(so_off)
++        so_off += 4
++
++    new_bytes = relocate_bytecode_region(wii_bytes, list(ent_wii.values()), 0, repl, table_offs)
++    stats = {
++        "total_messages": len(wii_msgs),
++        "translated_messages": len(wii_msgs) - len(untranslated_indices),
++        "untranslated_messages": len(untranslated_indices),
++        "untranslated_indices": untranslated_indices,
++    }
++    return new_bytes, stats
++
++
++def _read_cstr(b: bytes, off: int) -> bytes:
++    if off == 0:
++        return b""
++    end = b.index(0, off)
++    return b[off:end]
++
++
++def _extract_globals_table_strings(data_bytes: bytes) -> Dict[Tuple[str, int, int], bytes]:
++    out: Dict[Tuple[str, int, int], bytes] = {}
++    for hdr_off, stride, ptrs, name, count in GLOBALS_TEXT_TABLES:
++        tbl_off = struct.unpack_from("<I", data_bytes, hdr_off)[0]
++        if tbl_off == 0:
++            continue
++        for idx in range(count):
++            for p_off in ptrs:
++                s_off = struct.unpack_from("<I", data_bytes, tbl_off + idx * stride + p_off)[0]
++                if s_off != 0:
++                    out[(name, idx, p_off)] = _read_cstr(data_bytes, s_off)
++    return out
++
++
++def translate_globals_bin(
++    wii_bytes: bytes,
++    target_bytes: bytes,
++    jp_bytes: Optional[bytes] = None,
++) -> Tuple[bytes, Dict[str, object]]:
++    w_hdr = struct.unpack_from("<6I", wii_bytes, 0)
++    t_hdr = struct.unpack_from("<6I", target_bytes, 0)
++    w_data = bytearray(wii_bytes[0x18 + w_hdr[0] : 0x18 + w_hdr[0] + w_hdr[1]])
++    t_data = target_bytes[0x18 + t_hdr[0] : 0x18 + t_hdr[0] + t_hdr[1]]
++    j_strs = (
++        _extract_globals_table_strings(
++            jp_bytes[0x18 + struct.unpack_from("<2I", jp_bytes, 0)[0] :][: struct.unpack_from("<2I", jp_bytes, 0)[1]]
++        )
++        if jp_bytes is not None
++        else None
++    )
++    t_strs = _extract_globals_table_strings(t_data)
++
++    new_data = bytearray(w_data)
++    tbl_translated = 0
++    tbl_total = 0
++    for hdr_off, stride, ptrs, name, count in GLOBALS_TEXT_TABLES:
++        tbl_off = struct.unpack_from("<I", new_data, hdr_off)[0]
++        if tbl_off == 0:
++            continue
++        for idx in range(count):
++            for p_off in ptrs:
++                ptr_field = tbl_off + idx * stride + p_off
++                s_off = struct.unpack_from("<I", new_data, ptr_field)[0]
++                if s_off == 0:
++                    continue
++                w_str = _read_cstr(w_data, s_off)
++                tbl_total += 1
++                key = (name, idx, p_off)
++                if key in t_strs and (j_strs is None or j_strs.get(key) == w_str):
++                    chosen = t_strs[key]
++                    tbl_translated += 1
++                    if chosen != w_str:
++                        if len(chosen) <= len(w_str):
++                            new_data[s_off : s_off + len(chosen) + 1] = chosen + b"\x00"
++                        else:
++                            struct.pack_into("<I", new_data, ptr_field, len(new_data))
++                            new_data.extend(chosen)
++                            new_data.append(0)
++
++    # Translate & relocate scripts section
++    _, ent_wii = extract_script_entries(wii_bytes, is_globals=True)
++    _, _, _, wii_msgs = parse_script_from(wii_bytes, list(ent_wii.values()), 0x18 + w_hdr[4], follow_run=True)
++
++    if jp_bytes is not None:
++        slot_map_wj = map_globals_slots(wii_bytes, jp_bytes)
++        slot_map_jt = map_globals_slots(jp_bytes, target_bytes)
++        m_wj = align_by_structure(
++            wii_bytes, jp_bytes, is_globals=True, require_same_msg_bytes=True, slot_map=slot_map_wj
++        )
++        m_jt = align_by_structure(
++            jp_bytes, target_bytes, is_globals=True, require_same_msg_bytes=False, slot_map=slot_map_jt
++        )
++        repl: Dict[int, bytes] = {}
++        for m_start, (j_start, _) in m_wj.items():
++            if j_start in m_jt:
++                repl[m_start] = m_jt[j_start][1]
++        slots_mapped = len(set(slot_map_wj.values()) & set(slot_map_jt.keys()))
++    else:
++        slot_map_wt = map_globals_slots(wii_bytes, target_bytes)
++        m_wt = align_by_structure(
++            wii_bytes, target_bytes, is_globals=True, require_same_msg_bytes=False, slot_map=slot_map_wt
++        )
++        repl = {m_start: txt for m_start, (_, txt) in m_wt.items()}
++        slots_mapped = len(slot_map_wt)
++
++    untranslated_indices = [
++        idx for idx, (_, _, _, m_start, _) in enumerate(wii_msgs) if m_start not in repl
++    ]
++
++    scr_base = 0x18 + w_hdr[4]
++    table_offs: List[int] = []
++    i = 0
++    first_nz = len(wii_bytes)
++    while scr_base + i * 4 < first_nz:
++        val = struct.unpack_from("<I", wii_bytes, scr_base + i * 4)[0]
++        if val != 0:
++            first_nz = min(first_nz, scr_base + val)
++            table_offs.append(scr_base + i * 4)
++        i += 1
++
++    relocated_full = relocate_bytecode_region(
++        wii_bytes, list(ent_wii.values()), scr_base, repl, table_offs
++    )
++    new_scripts = relocated_full[scr_base:]
++    coll_bytes = wii_bytes[0x18 + w_hdr[2] : 0x18 + w_hdr[2] + w_hdr[3]]
++
++    new_data_len = len(new_data)
++    new_coll_off = (new_data_len + 3) & ~3
++    new_scr_off = (new_coll_off + len(coll_bytes) + 3) & ~3
++
++    out = bytearray(struct.pack("<6I", 0, new_data_len, new_coll_off, len(coll_bytes), new_scr_off, len(new_scripts)))
++    out.extend(new_data)
++    out.extend(b"\x00" * (new_coll_off - new_data_len))
++    out.extend(coll_bytes)
++    out.extend(b"\x00" * (new_scr_off - (new_coll_off + len(coll_bytes))))
++    out.extend(new_scripts)
++
++    stats = {
++        "total_messages": len(wii_msgs),
++        "translated_messages": len(wii_msgs) - len(untranslated_indices),
++        "untranslated_messages": len(untranslated_indices),
++        "untranslated_indices": untranslated_indices,
++        "table_strings_total": tbl_total,
++        "table_strings_translated": tbl_translated,
++        "slots_total": len(ent_wii),
++        "slots_mapped": slots_mapped,
++    }
++    return bytes(out), stats
++
++
++TPL_FMT_SPECS: Dict[int, Tuple[int, int, int]] = {
++    # fmt_id: (block_w, block_h, bpp)
++    0: (8, 8, 4),    # I4
++    1: (8, 4, 8),    # I8
++    2: (8, 4, 8),    # IA4
++    3: (4, 4, 16),   # IA8
++    4: (4, 4, 16),   # RGB565
++    5: (4, 4, 16),   # RGB5A3
++    6: (4, 4, 32),   # RGBA8
++    8: (8, 8, 4),    # CI4
++    9: (8, 4, 8),    # CI8
++    14: (8, 8, 4),   # CMPR
++}
++
++
++def _tpl_data_size(w: int, h: int, fmt: int) -> int:
++    bw, bh, bpp = TPL_FMT_SPECS[fmt]
++    tiles_x = (w + bw - 1) // bw
++    tiles_y = (h + bh - 1) // bh
++    return tiles_x * tiles_y * ((bw * bh * bpp) // 8)
++
++
++def _decode_pal_entry(fmt: int, val: int) -> Tuple[int, int, int, int]:
++    if fmt == 0:  # IA8
++        i = val & 0xFF
++        a = (val >> 8) & 0xFF
++        return (i, i, i, a)
++    if fmt == 1:  # RGB565
++        r, g, b = (val >> 11) & 0x1F, (val >> 5) & 0x3F, val & 0x1F
++        return ((r << 3) | (r >> 2), (g << 2) | (g >> 4), (b << 3) | (b >> 2), 255)
++    if fmt == 2:  # RGB5A3
++        if val & 0x8000:
++            r, g, b = (val >> 10) & 0x1F, (val >> 5) & 0x1F, val & 0x1F
++            return ((r << 3) | (r >> 2), (g << 3) | (g >> 2), (b << 3) | (b >> 2), 255)
++        a = (val >> 12) & 7
++        r, g, b = (val >> 8) & 0xF, (val >> 4) & 0xF, val & 0xF
++        return ((r << 4) | r, (g << 4) | g, (b << 4) | b, (a << 5) | (a << 2) | (a >> 1))
++    raise ValueError(f"Unsupported TPL palette format {fmt}")
++
++
++def _decode_tpl_pixels(
++    data: bytes,
++    w: int,
++    h: int,
++    fmt: int,
++    pal_fmt: Optional[int] = None,
++    pal_data: Optional[bytes] = None,
++) -> bytearray:
++    out = bytearray(w * h * 4)
++    bw, bh, _ = TPL_FMT_SPECS[fmt]
++    tiles_x = (w + bw - 1) // bw
++    tiles_y = (h + bh - 1) // bh
++    palette: List[Tuple[int, int, int, int]] = []
++    if fmt in (8, 9):
++        if pal_fmt is None or pal_data is None:
++            raise ValueError(f"Palette required for TPL format {fmt}")
++        palette = [
++            _decode_pal_entry(pal_fmt, struct.unpack_from(">H", pal_data, i * 2)[0])
++            for i in range(len(pal_data) // 2)
++        ]
++
++    def put(x: int, y: int, rgba: Tuple[int, int, int, int]) -> None:
++        if x < w and y < h:
++            idx = (y * w + x) * 4
++            out[idx : idx + 4] = bytes(rgba)
++
++    pos = 0
++    for ty in range(tiles_y):
++        for tx in range(tiles_x):
++            bx, by = tx * bw, ty * bh
++            if fmt == 0:  # I4
++                for y in range(8):
++                    for x in range(0, 8, 2):
++                        byte = data[pos]
++                        pos += 1
++                        v0 = (byte >> 4) * 17
++                        v1 = (byte & 0xF) * 17
++                        put(bx + x, by + y, (v0, v0, v0, 255))
++                        put(bx + x + 1, by + y, (v1, v1, v1, 255))
++            elif fmt == 1:  # I8
++                for y in range(4):
++                    for x in range(8):
++                        v = data[pos]
++                        pos += 1
++                        put(bx + x, by + y, (v, v, v, 255))
++            elif fmt == 2:  # IA4
++                for y in range(4):
++                    for x in range(8):
++                        byte = data[pos]
++                        pos += 1
++                        a = (byte >> 4) * 17
++                        v = (byte & 0xF) * 17
++                        put(bx + x, by + y, (v, v, v, a))
++            elif fmt == 3:  # IA8
++                for y in range(4):
++                    for x in range(4):
++                        a, v = data[pos], data[pos + 1]
++                        pos += 2
++                        put(bx + x, by + y, (v, v, v, a))
++            elif fmt in (4, 5):  # RGB565 / RGB5A3
++                p_fmt = 1 if fmt == 4 else 2
++                for y in range(4):
++                    for x in range(4):
++                        val = struct.unpack_from(">H", data, pos)[0]
++                        pos += 2
++                        put(bx + x, by + y, _decode_pal_entry(p_fmt, val))
++            elif fmt == 6:  # RGBA8
++                ar = data[pos : pos + 32]
++                gb = data[pos + 32 : pos + 64]
++                pos += 64
++                for i in range(16):
++                    x, y = i & 3, i >> 2
++                    put(bx + x, by + y, (ar[i * 2 + 1], gb[i * 2], gb[i * 2 + 1], ar[i * 2]))
++            elif fmt == 8:  # CI4
++                for y in range(8):
++                    for x in range(0, 8, 2):
++                        byte = data[pos]
++                        pos += 1
++                        put(bx + x, by + y, palette[byte >> 4])
++                        put(bx + x + 1, by + y, palette[byte & 0xF])
++            elif fmt == 9:  # CI8
++                for y in range(4):
++                    for x in range(8):
++                        put(bx + x, by + y, palette[data[pos]])
++                        pos += 1
++            elif fmt == 14:  # CMPR
++                for sy in (0, 4):
++                    for sx in (0, 4):
++                        c0, c1 = struct.unpack_from(">2H", data, pos)
++                        pos += 4
++                        p0 = _decode_pal_entry(1, c0)
++                        p1 = _decode_pal_entry(1, c1)
++                        if c0 > c1:
++                            cols = [
++                                p0,
++                                p1,
++                                ((2 * p0[0] + p1[0]) // 3, (2 * p0[1] + p1[1]) // 3, (2 * p0[2] + p1[2]) // 3, 255),
++                                ((p0[0] + 2 * p1[0]) // 3, (p0[1] + 2 * p1[1]) // 3, (p0[2] + 2 * p1[2]) // 3, 255),
++                            ]
++                        else:
++                            cols = [
++                                p0,
++                                p1,
++                                ((p0[0] + p1[0]) // 2, (p0[1] + p1[1]) // 2, (p0[2] + p1[2]) // 2, 255),
++                                (0, 0, 0, 0),
++                            ]
++                        for ry in range(4):
++                            row = data[pos]
++                            pos += 1
++                            for rx in range(4):
++                                ci = (row >> (6 - 2 * rx)) & 3
++                                put(bx + sx + rx, by + sy + ry, cols[ci])
++            else:
++                raise ValueError(f"Unsupported TPL format {fmt}")
++    return out
++
++
++def _encode_tpl_pixels(rgba: bytes, w: int, h: int, fmt: int) -> bytes:
++    if fmt not in (0, 1, 2, 3, 4, 5, 6, 14):
++        raise ValueError(f"Unsupported target TPL format {fmt}")
++    bw, bh, _ = TPL_FMT_SPECS[fmt]
++    tiles_x = (w + bw - 1) // bw
++    tiles_y = (h + bh - 1) // bh
++    out = bytearray()
++
++    def get(x: int, y: int) -> Tuple[int, int, int, int]:
++        cx = min(x, w - 1)
++        cy = min(y, h - 1)
++        idx = (cy * w + cx) * 4
++        return rgba[idx], rgba[idx + 1], rgba[idx + 2], rgba[idx + 3]
++
++    def lum(p: Tuple[int, int, int, int]) -> int:
++        return (p[0] * 77 + p[1] * 150 + p[2] * 29) >> 8
++
++    for ty in range(tiles_y):
++        for tx in range(tiles_x):
++            bx, by = tx * bw, ty * bh
++            if fmt == 0:  # I4
++                for y in range(8):
++                    for x in range(0, 8, 2):
++                        v0 = lum(get(bx + x, by + y)) >> 4
++                        v1 = lum(get(bx + x + 1, by + y)) >> 4
++                        out.append((v0 << 4) | v1)
++            elif fmt == 1:  # I8
++                for y in range(4):
++                    for x in range(8):
++                        out.append(lum(get(bx + x, by + y)))
++            elif fmt == 2:  # IA4
++                for y in range(4):
++                    for x in range(8):
++                        p = get(bx + x, by + y)
++                        out.append(((p[3] >> 4) << 4) | (lum(p) >> 4))
++            elif fmt == 3:  # IA8
++                for y in range(4):
++                    for x in range(4):
++                        p = get(bx + x, by + y)
++                        out.append(p[3])
++                        out.append(lum(p))
++            elif fmt == 4:  # RGB565
++                for y in range(4):
++                    for x in range(4):
++                        r, g, b, _ = get(bx + x, by + y)
++                        out.extend(struct.pack(">H", ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3)))
++            elif fmt == 5:  # RGB5A3
++                for y in range(4):
++                    for x in range(4):
++                        r, g, b, a = get(bx + x, by + y)
++                        if a >= 0xE0:
++                            val = 0x8000 | ((r >> 3) << 10) | ((g >> 3) << 5) | (b >> 3)
++                        else:
++                            val = ((a >> 5) << 12) | ((r >> 4) << 8) | ((g >> 4) << 4) | (b >> 4)
++                        out.extend(struct.pack(">H", val))
++            elif fmt == 6:  # RGBA8
++                ar = bytearray()
++                gb = bytearray()
++                for y in range(4):
++                    for x in range(4):
++                        r, g, b, a = get(bx + x, by + y)
++                        ar.extend((a, r))
++                        gb.extend((g, b))
++                out.extend(ar)
++                out.extend(gb)
++            elif fmt == 14:  # CMPR
++                for sy in (0, 4):
++                    for sx in (0, 4):
++                        blk = [get(bx + sx + rx, by + sy + ry) for ry in range(4) for rx in range(4)]
++                        opaque = [p for p in blk if p[3] >= 128]
++                        has_alpha = len(opaque) < 16
++                        if not opaque:
++                            out.extend(b"\x00\x00\x00\x00\xff\xff\xff\xff")
++                            continue
++                        lo = min(opaque, key=lum)
++                        hi = max(opaque, key=lum)
++                        c_lo = ((lo[0] >> 3) << 11) | ((lo[1] >> 2) << 5) | (lo[2] >> 3)
++                        c_hi = ((hi[0] >> 3) << 11) | ((hi[1] >> 2) << 5) | (hi[2] >> 3)
++                        if has_alpha:
++                            c0, c1 = (c_lo, c_hi) if c_lo <= c_hi else (c_hi, c_lo)
++                        else:
++                            if c_lo == c_hi:
++                                c0 = c1 = c_hi
++                            else:
++                                c0, c1 = (c_hi, c_lo) if c_hi > c_lo else (c_lo, c_hi)
++                        p0 = _decode_pal_entry(1, c0)
++                        p1 = _decode_pal_entry(1, c1)
++                        if c0 > c1:
++                            pal = [
++                                p0,
++                                p1,
++                                ((2 * p0[0] + p1[0]) // 3, (2 * p0[1] + p1[1]) // 3, (2 * p0[2] + p1[2]) // 3, 255),
++                                ((p0[0] + 2 * p1[0]) // 3, (p0[1] + 2 * p1[1]) // 3, (p0[2] + 2 * p1[2]) // 3, 255),
++                            ]
++                        else:
++                            pal = [
++                                p0,
++                                p1,
++                                ((p0[0] + p1[0]) // 2, (p0[1] + p1[1]) // 2, (p0[2] + p1[2]) // 2, 255),
++                                (0, 0, 0, 0),
++                            ]
++                        out.extend(struct.pack(">2H", c0, c1))
++                        for ry in range(4):
++                            row = 0
++                            for rx in range(4):
++                                p = blk[ry * 4 + rx]
++                                if has_alpha and p[3] < 128:
++                                    ci = 3
++                                else:
++                                    limit = 3 if has_alpha else 4
++                                    ci = min(
++                                        range(limit),
++                                        key=lambda idx: (p[0] - pal[idx][0]) ** 2
++                                        + (p[1] - pal[idx][1]) ** 2
++                                        + (p[2] - pal[idx][2]) ** 2,
++                                    )
++                                row |= ci << (6 - 2 * rx)
++                            out.append(row)
++    return bytes(out)
++
++
++def parse_tpl_textures(b: bytes) -> List[Dict[str, object]]:
++    """Parse full TPL headers, image data, and optional palettes."""
++    if len(b) < 12:
++        raise ValueError("TPL too short")
++    magic, count, tbl_off = struct.unpack_from(">3I", b, 0)
++    if magic != 0x0020AF30:
++        raise ValueError(f"Bad TPL magic 0x{magic:08x}")
++    texs: List[Dict[str, object]] = []
++    for i in range(count):
++        tex_hdr_off, pal_hdr_off = struct.unpack_from(">2I", b, tbl_off + i * 8)
++        h, w, fmt, data_off, wrap_s, wrap_t, min_f, mag_f, lod_bias, edge_lod, min_lod, max_lod, unpacked = (
++            struct.unpack_from(">2H6If4B", b, tex_hdr_off)
++        )
++        data_len = _tpl_data_size(w, h, fmt) if fmt in TPL_FMT_SPECS else 0
++        pal_fmt: Optional[int] = None
++        pal_data: Optional[bytes] = None
++        if pal_hdr_off != 0:
++            p_cnt, _, _, pal_fmt, p_data_off = struct.unpack_from(">HBBII", b, pal_hdr_off)
++            pal_data = b[p_data_off : p_data_off + p_cnt * 2]
++        texs.append(
++            {
++                "width": w,
++                "height": h,
++                "fmt": fmt,
++                "wrap_s": wrap_s,
++                "wrap_t": wrap_t,
++                "min_filter": min_f,
++                "mag_filter": mag_f,
++                "lod_bias": lod_bias,
++                "edge_lod": edge_lod,
++                "min_lod": min_lod,
++                "max_lod": max_lod,
++                "unpacked": unpacked,
++                "data": b[data_off : data_off + data_len],
++                "pal_fmt": pal_fmt,
++                "pal_data": pal_data,
++            }
++        )
++    return texs
++
++
++def parse_tpl_header(b: bytes) -> List[Tuple[int, int, int]]:
++    if len(b) < 12:
++        raise ValueError("TPL too short")
++    magic, count, tbl_off = struct.unpack_from(">3I", b, 0)
++    if magic != 0x0020AF30:
++        raise ValueError(f"Bad TPL magic 0x{magic:08x}")
++    texs: List[Tuple[int, int, int]] = []
++    for i in range(count):
++        tex_hdr_off, _ = struct.unpack_from(">2I", b, tbl_off + i * 8)
++        h, w, fmt = struct.unpack_from(">2HI", b, tex_hdr_off)
++        texs.append((w, h, fmt))
++    return texs
++
++
++def _build_tpl(texs: List[Dict[str, object]]) -> bytes:
++    count = len(texs)
++    tbl_off = 12
++    pal_entries: List[Tuple[int, int, bytes]] = []
++    tex_hdr_offs: List[int] = []
++    pal_hdr_offs: List[int] = []
++
++    cursor = tbl_off + count * 8
++    for t in texs:
++        if t["pal_data"] is not None:
++            pal_hdr_offs.append(cursor)
++            pal_entries.append((len(pal_entries), int(t["pal_fmt"]), bytes(t["pal_data"])))
++            cursor += 12
++        else:
++            pal_hdr_offs.append(0)
++        tex_hdr_offs.append(cursor)
++        cursor += 36
++
++    # Align data section to 32 bytes
++    data_cursor = (cursor + 31) & ~31
++    pal_data_offs: Dict[int, int] = {}
++    pal_blobs: List[Tuple[int, bytes]] = []
++    for idx, p_fmt, p_bytes in pal_entries:
++        pal_data_offs[idx] = data_cursor
++        pal_blobs.append((data_cursor, p_bytes))
++        data_cursor = (data_cursor + len(p_bytes) + 31) & ~31
++
++    tex_data_offs: List[int] = []
++    for t in texs:
++        tex_data_offs.append(data_cursor)
++        data_cursor = (data_cursor + len(bytes(t["data"])) + 31) & ~31
++
++    out = bytearray(data_cursor)
++    struct.pack_into(">3I", out, 0, 0x0020AF30, count, tbl_off)
++    pal_idx = 0
++    for i, t in enumerate(texs):
++        struct.pack_into(">2I", out, tbl_off + i * 8, tex_hdr_offs[i], pal_hdr_offs[i])
++        if pal_hdr_offs[i] != 0:
++            p_bytes = bytes(t["pal_data"])
++            struct.pack_into(
++                ">HBBII", out, pal_hdr_offs[i], len(p_bytes) // 2, 0, 0, int(t["pal_fmt"]), pal_data_offs[pal_idx]
++            )
++            out[pal_data_offs[pal_idx] : pal_data_offs[pal_idx] + len(p_bytes)] = p_bytes
++            pal_idx += 1
++        struct.pack_into(
++            ">2H6If4B",
++            out,
++            tex_hdr_offs[i],
++            int(t["height"]),
++            int(t["width"]),
++            int(t["fmt"]),
++            tex_data_offs[i],
++            int(t["wrap_s"]),
++            int(t["wrap_t"]),
++            int(t["min_filter"]),
++            int(t["mag_filter"]),
++            float(t["lod_bias"]),
++            int(t["edge_lod"]),
++            int(t["min_lod"]),
++            int(t["max_lod"]),
++            int(t["unpacked"]),
++        )
++        d_bytes = bytes(t["data"])
++        out[tex_data_offs[i] : tex_data_offs[i] + len(d_bytes)] = d_bytes
++    return bytes(out)
++
++
++def convert_tpl_to_wii_format(
++    wii_tpl: bytes, target_tpl: bytes
++) -> Tuple[Optional[bytes], Dict[str, object]]:
++    """Convert target_tpl into wii_tpl's texture formats if counts and dimensions match."""
++    w_texs = parse_tpl_textures(wii_tpl)
++    t_texs = parse_tpl_textures(target_tpl)
++    if len(w_texs) != len(t_texs):
++        return None, {
++            "reason": "texture_count_mismatch",
++            "wii_count": len(w_texs),
++            "target_count": len(t_texs),
++        }
++    dim_mismatches = [
++        {
++            "index": i,
++            "wii": [int(wt["width"]), int(wt["height"])],
++            "target": [int(tt["width"]), int(tt["height"])],
++        }
++        for i, (wt, tt) in enumerate(zip(w_texs, t_texs))
++        if wt["width"] != tt["width"] or wt["height"] != tt["height"]
++    ]
++    if dim_mismatches:
++        return None, {"reason": "dimension_mismatch", "mismatches": dim_mismatches}
++
++    if all(
++        wt["fmt"] == tt["fmt"] and wt["pal_fmt"] == tt["pal_fmt"] and len(wii_tpl) == len(target_tpl)
++        for wt, tt in zip(w_texs, t_texs)
++    ):
++        return target_tpl, {"reason": "direct_match"}
++
++    converted_texs: List[Dict[str, object]] = []
++    reencoded = 0
++    for wt, tt in zip(w_texs, t_texs):
++        w_fmt = int(wt["fmt"])
++        t_fmt = int(tt["fmt"])
++        if w_fmt == t_fmt and wt["pal_fmt"] == tt["pal_fmt"]:
++            new_t = dict(wt)
++            new_t["data"] = tt["data"]
++            new_t["pal_data"] = tt["pal_data"]
++            converted_texs.append(new_t)
++            continue
++        if t_fmt not in TPL_FMT_SPECS or w_fmt not in (0, 1, 2, 3, 4, 5, 6, 14):
++            return None, {
++                "reason": "unsupported_format_conversion",
++                "wii_fmt": w_fmt,
++                "target_fmt": t_fmt,
++            }
++        rgba = _decode_tpl_pixels(
++            bytes(tt["data"]),
++            int(tt["width"]),
++            int(tt["height"]),
++            t_fmt,
++            tt["pal_fmt"] if tt["pal_fmt"] is None else int(tt["pal_fmt"]),
++            tt["pal_data"] if tt["pal_data"] is None else bytes(tt["pal_data"]),
++        )
++        new_t = dict(wt)
++        new_t["data"] = _encode_tpl_pixels(rgba, int(wt["width"]), int(wt["height"]), w_fmt)
++        new_t["pal_fmt"] = None
++        new_t["pal_data"] = None
++        converted_texs.append(new_t)
++        reencoded += 1
++
++    return _build_tpl(converted_texs), {"reason": "reencoded", "reencoded_textures": reencoded}
++
++
++def _run_dtk(dtk: Path, args: Sequence[str]) -> str:
++    res = subprocess.run([str(dtk), *args], capture_output=True, text=True)
++    if res.returncode != 0:
++        raise RuntimeError(f"dtk {' '.join(args)} failed: {res.stderr.strip() or res.stdout.strip()}")
++    return res.stdout
++
++
++def _dtk_exists(dtk: Path, vfs_target: str) -> bool:
++    res = subprocess.run([str(dtk), "vfs", "ls", vfs_target], capture_output=True, text=True)
++    return res.returncode == 0
++
++
++def _auto_detect_jp_disc(wii_path: Path) -> Optional[Path]:
++    # Check <parent_of_R24J01>/GGTJ01_01/*.rvz or *.iso
++    jp_dir = wii_path.parent.parent / "GGTJ01_01"
++    if not jp_dir.is_dir():
++        return None
++    for ext in ("*.rvz", "*.iso", "*.gcm"):
++        matches = sorted(jp_dir.glob(ext))
++        if matches:
++            return matches[0]
++    return None
++
++
++def _extract_discs(
++    dtk: Path,
++    wii_disc: Path,
++    us_disc: Path,
++    pal_disc: Path,
++    jp_disc: Optional[Path],
++    work_dir: Path,
++) -> Dict[str, Path]:
++    paths = {
++        "wii_bin": work_dir / "wii" / "bin",
++        "wii_tpl": work_dir / "wii" / "tpl",
++        "us_bin_e": work_dir / "us" / "bin" / "e",
++        "us_tpl": work_dir / "us" / "tpl",
++        "pal_bin": work_dir / "pal" / "bin",
++        "pal_tpl": work_dir / "pal" / "tpl",
++    }
++    for p in paths.values():
++        if p.exists():
++            shutil.rmtree(p)
++        p.mkdir(parents=True, exist_ok=True)
++
++    _run_dtk(dtk, ["vfs", "cp", f"{wii_disc}:files/bin", str(paths["wii_bin"])])
++    _run_dtk(dtk, ["vfs", "cp", f"{wii_disc}:files/tpl", str(paths["wii_tpl"])])
++    _run_dtk(dtk, ["vfs", "cp", f"{us_disc}:files/qp.bin:bin/e", str(paths["us_bin_e"])])
++    _run_dtk(dtk, ["vfs", "cp", f"{us_disc}:files/qp.bin:tpl", str(paths["us_tpl"])])
++    for sub in ("e", "g", "f", "s", "i"):
++        dst = paths["pal_bin"] / sub
++        dst.mkdir(parents=True, exist_ok=True)
++        _run_dtk(dtk, ["vfs", "cp", f"{pal_disc}:files/qp.bin:bin/{sub}", str(dst)])
++    _run_dtk(dtk, ["vfs", "cp", f"{pal_disc}:files/qp.bin:tpl", str(paths["pal_tpl"])])
++
++    if jp_disc is not None:
++        jp_bin = work_dir / "jp" / "bin"
++        if jp_bin.exists():
++            shutil.rmtree(jp_bin)
++        jp_bin.mkdir(parents=True, exist_ok=True)
++        _run_dtk(dtk, ["vfs", "cp", f"{jp_disc}:files/qp.bin:bin", str(jp_bin)])
++        paths["jp_bin"] = jp_bin
++    return paths
++
++
++def _write_depfile(depfile: Path, targets: Sequence[Path], deps: Sequence[Path]) -> None:
++    depfile.parent.mkdir(parents=True, exist_ok=True)
++    t_str = " ".join(str(t).replace(" ", "\\ ") for t in targets)
++    d_str = " ".join(str(d).replace(" ", "\\ ") for d in deps)
++    depfile.write_text(f"{t_str}: {d_str}\n", encoding="utf-8")
++
++
++def _tpl_counterpart_name(wii_name: str, suffix: str) -> str:
++    if wii_name == "logo.tpl":
++        return f"logo_{suffix}.tpl"
++    if wii_name == "title.tpl":
++        title_suffix = "en" if suffix == "us" else suffix
++        return f"title_{title_suffix}.tpl"
++    return wii_name
++
++
++def build_language_data(
++    dtk: Path,
++    wii_disc: Path,
++    us_disc: Path,
++    pal_disc: Path,
++    work_dir: Path,
++    out_dir: Path,
++    jp_disc: Optional[Path] = None,
++    depfile: Optional[Path] = None,
++) -> Dict[str, object]:
++    for label, p in (("dtk", dtk), ("wii", wii_disc), ("us", us_disc), ("pal", pal_disc)):
++        if not p.exists():
++            raise FileNotFoundError(f"Missing --{label} path: {p}")
++    if jp_disc is not None and not jp_disc.exists():
++        raise FileNotFoundError(f"Missing --jp path: {jp_disc}")
++
++    if not _dtk_exists(dtk, f"{wii_disc}:files/bin"):
++        raise RuntimeError(f"Invalid Wii disc (files/bin missing): {wii_disc}")
++    if not _dtk_exists(dtk, f"{us_disc}:files/qp.bin"):
++        raise RuntimeError(f"Invalid US GC disc (files/qp.bin missing): {us_disc}")
++    if not _dtk_exists(dtk, f"{pal_disc}:files/qp.bin"):
++        raise RuntimeError(f"Invalid PAL GC disc (files/qp.bin missing): {pal_disc}")
++
++    extracted = _extract_discs(dtk, wii_disc, us_disc, pal_disc, jp_disc, work_dir)
++    out_dir.mkdir(parents=True, exist_ok=True)
++
++    wii_fnt_empty = _dtk_exists(dtk, f"{wii_disc}:files/fnt") and not _run_dtk(
++        dtk, ["vfs", "ls", f"{wii_disc}:files/fnt"]
++    ).strip()
++
++    # Record Wii-only asset directories whose container format differs from GC (.brres/.thp vs .dat)
++    wii_asset_dirs = []
++    for d in ("Item", "how_to_chibirobo", "chibihouse", "kitchen", "living", "movie", "hbm"):
++        if _dtk_exists(dtk, f"{wii_disc}:files/{d}"):
++            wii_asset_dirs.append(d)
++
++    wii_bins = sorted(extracted["wii_bin"].glob("*.bin"))
++    wii_tpls = sorted(extracted["wii_tpl"].glob("*.tpl"))
++
++    report: Dict[str, object] = {
++        "jp_reference_used": jp_disc is not None,
++        "font": {
++            "status": "no_disc_font",
++            "wii_fnt_empty": wii_fnt_empty,
++            "pal_disc_font": False,
++            "note": "PAL/US 512x512 I4 single-byte font is compiled into main.dol (CFont::Init); R24J01 uses ROM font.",
++        },
++        "non_transferable_asset_dirs": wii_asset_dirs,
++        "languages": {},
++    }
++
++    written_files: List[Path] = []
++    for code, (disc_key, bin_sub, tpl_suffix) in LANG_SPECS.items():
++        lang_out = out_dir / "lang" / code
++        if lang_out.exists():
++            shutil.rmtree(lang_out)
++
++        tgt_bin_dir = extracted["us_bin_e"] if disc_key == "us" else (extracted["pal_bin"] / bin_sub)
++        tgt_tpl_dir = extracted["us_tpl"] if disc_key == "us" else extracted["pal_tpl"]
++        jp_bin_dir = extracted.get("jp_bin")
++
++        transferred_files: List[str] = []
++        identical_files: List[str] = []
++        non_transferable_files: List[Dict[str, object]] = []
++        wii_only_files: List[str] = []
++        total_msgs = 0
++        translated_msgs = 0
++        untranslated_msgs = 0
++        per_bin_details: Dict[str, object] = {}
++
++        for wii_bin_path in wii_bins:
++            name = wii_bin_path.name
++            rel_path = f"bin/{name}"
++            wii_b = wii_bin_path.read_bytes()
++            tgt_path = tgt_bin_dir / name
++            if not tgt_path.exists():
++                wii_only_files.append(rel_path)
++                continue
++            tgt_b = tgt_path.read_bytes()
++            jp_b = (jp_bin_dir / name).read_bytes() if (jp_bin_dir and (jp_bin_dir / name).exists()) else None
++
++            if name == "globals.bin":
++                new_b, stats = translate_globals_bin(wii_b, tgt_b, jp_b)
++                # Verify rebuilt globals.bin parses cleanly
++                _, ent_chk = extract_script_entries(new_b, is_globals=True)
++                scr_off = struct.unpack_from("<I", new_b, 16)[0]
++                parse_script_from(new_b, list(ent_chk.values()), 0x18 + scr_off, follow_run=True)
++            else:
++                new_b, stats = translate_stage_bin(wii_b, tgt_b, jp_b)
++                _, ent_chk = extract_script_entries(new_b, is_globals=False)
++                parse_script_from(new_b, list(ent_chk.values()), 0, follow_run=True)
++
++            total_msgs += int(stats["total_messages"])
++            translated_msgs += int(stats["translated_messages"])
++            untranslated_msgs += int(stats["untranslated_messages"])
++            if stats["untranslated_messages"] > 0 or name == "globals.bin":
++                per_bin_details[rel_path] = stats
++
++            if new_b != wii_b:
++                dst = lang_out / "bin" / name
++                dst.parent.mkdir(parents=True, exist_ok=True)
++                dst.write_bytes(new_b)
++                written_files.append(dst)
++                transferred_files.append(rel_path)
++            else:
++                identical_files.append(rel_path)
++
++        for wii_tpl_path in wii_tpls:
++            name = wii_tpl_path.name
++            rel_path = f"tpl/{name}"
++            tgt_name = _tpl_counterpart_name(name, tpl_suffix)
++            tgt_tpl_path = tgt_tpl_dir / tgt_name
++            if not tgt_tpl_path.exists():
++                wii_only_files.append(rel_path)
++                continue
++            wii_b = wii_tpl_path.read_bytes()
++            tgt_b = tgt_tpl_path.read_bytes()
++            converted_b, tpl_info = convert_tpl_to_wii_format(wii_b, tgt_b)
++            if converted_b is None:
++                non_transferable_files.append({"path": rel_path, **tpl_info})
++                continue
++            if wii_b == converted_b:
++                identical_files.append(rel_path)
++                continue
++            dst = lang_out / "tpl" / name
++            dst.parent.mkdir(parents=True, exist_ok=True)
++            dst.write_bytes(converted_b)
++            written_files.append(dst)
++            transferred_files.append(rel_path)
++
++        report["languages"][code] = {
++            "transferred_files": transferred_files,
++            "identical_files": identical_files,
++            "non_transferable_files": non_transferable_files,
++            "wii_only_files": wii_only_files,
++            "total_messages": total_msgs,
++            "translated_messages": translated_msgs,
++            "untranslated_messages": untranslated_msgs,
++            "bin_details": per_bin_details,
++        }
++
++    report_path = out_dir / "report.json"
++    report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
++    if depfile is not None:
++        deps = [wii_disc, us_disc, pal_disc]
++        if jp_disc is not None:
++            deps.append(jp_disc)
++        _write_depfile(depfile, [report_path, *written_files], deps)
++    return report
++
++
++def main(argv: Optional[Sequence[str]] = None) -> int:
++    parser = argparse.ArgumentParser(description="Generate Wii multi-language override files from GC discs.")
++    parser.add_argument("--dtk", required=True, type=Path)
++    parser.add_argument("--wii", required=True, type=Path)
++    parser.add_argument("--us", required=True, type=Path)
++    parser.add_argument("--pal", required=True, type=Path)
++    parser.add_argument("--jp", default=None, type=Path, help="Optional GC JP disc (auto-detected if sibling GGTJ01_01 exists)")
++    parser.add_argument("--work", required=True, type=Path)
++    parser.add_argument("--out", required=True, type=Path)
++    parser.add_argument("--depfile", default=None, type=Path)
++    args = parser.parse_args(argv)
++
++    jp_disc = args.jp if args.jp is not None else _auto_detect_jp_disc(args.wii)
++    try:
++        build_language_data(
++            dtk=args.dtk,
++            wii_disc=args.wii,
++            us_disc=args.us,
++            pal_disc=args.pal,
++            work_dir=args.work,
++            out_dir=args.out,
++            jp_disc=jp_disc,
++            depfile=args.depfile,
++        )
++    except Exception as exc:
++        print(f"error: {exc}", file=sys.stderr)
++        return 1
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/tools/wii_lang_install.py b/tools/wii_lang_install.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..6a8a4e9a097e5812edae4364093b72820b9fb379
+--- /dev/null
++++ b/tools/wii_lang_install.py
+@@ -0,0 +1,35 @@
++"""Synchronize the generated language subtree into one mod's files directory."""
++import os
++import shutil
++import sys
++from pathlib import Path
++from tempfile import TemporaryDirectory
++
++
++def install(files, target, codes=("en", "de", "fr", "es", "it")):
++    """Install the generated languages `codes` as `target` (a mod's files/lang)."""
++    source = files / "lang"
++    for code in codes:
++        if not (source / code).is_dir():
++            raise ValueError(f"Missing generated language directory: {source / code}")
++    # Only the generated lang subtree belongs to this rule. Keep sibling mod files.
++    target.parent.mkdir(parents=True, exist_ok=True)
++    with TemporaryDirectory(dir=target.parent) as tmp:
++        staged = Path(tmp) / "lang"
++        staged.mkdir()
++        for code in codes:
++            shutil.copytree(source / code, staged / code)
++        old = Path(tmp) / "old"
++        if target.exists():
++            target.rename(old)
++        try:
++            staged.rename(target)
++        except OSError:
++            if old.exists():
++                old.rename(target)
++            raise
++    os.utime(target)
++
++
++if __name__ == "__main__":
++    install(Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3:] or ("en", "de", "fr", "es", "it"))
+diff --git a/tools/wii_locale.py b/tools/wii_locale.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..529f2d3c3ec71171e79655ae8b42b2caa5d9ec15
+--- /dev/null
++++ b/tools/wii_locale.py
+@@ -0,0 +1,184 @@
++"""Generate Wii interface strings. The NAND banner uses two 32-unit UTF-16 fields."""
++
++import hashlib
++import json
++import subprocess
++import tempfile
++import os
++from pathlib import Path
++
++from .versions import DISC_EXT
++
++
++def disc_image(folder: Path) -> Path:
++    # DTK can split a disc image directly, so a successful build need not leave an extracted partition.
++    images = sorted(p for p in folder.glob("*") if p.is_file() and p.suffix.lower() in DISC_EXT)
++    if images:
++        return images[0]
++    extracted = folder / "sys/main.dol"
++    if extracted.is_file() and (folder / "sys/boot.bin").is_file() and (folder / "files").is_dir():
++        return extracted
++    raise ValueError(f"Place the disc image or its extracted game partition in {folder}")
++
++
++def write_header(translations: Path, locale: str, output: Path) -> None:
++    locales = json.loads(translations.read_text(encoding="utf-8"))
++    selected = SYSTEM_LOCALES if locale == "global" else (locale,)
++    lines = []
++    for number, name in enumerate(selected):
++        lines.extend(interface_row(name, locales[name], number))
++    rows = [f"sInterfaceRow{i}" for i in range(len(selected))]
++    if locale != "global":
++        rows *= len(SYSTEM_LOCALES)
++    lines.append("static const char* const* const sWiiInterfaceRows[] = { " + ", ".join(rows) + " };")
++    text = "\n".join(lines) + "\n"
++    output.parent.mkdir(parents=True, exist_ok=True)
++    if not output.exists() or output.read_text(encoding="ascii") != text:
++        output.write_text(text, encoding="ascii")
++
++
++SYSTEM_LOCALES = ("en-US", "de-DE", "fr-FR", "es-ES", "it-IT")
++
++
++def interface_row(locale, strings, number):
++    if len(strings) != 6 or any(not isinstance(s, str) or not s or "\0" in s for s in strings):
++        raise ValueError(f"{locale}: expected the six Wii title, banner and controller messages")
++    lines = []
++    entries = []
++    for index, string in enumerate(strings):
++        if index in (1, 2):
++            data = string.encode("utf-16-be")
++            if len(data) > 62:
++                raise ValueError(f"{locale}: NAND banner line {index} exceeds 31 UTF-16 units")
++            units = [f"0x{int.from_bytes(data[i:i+2], 'big'):04x}" for i in range(0, len(data), 2)]
++            lines.append(f"static const u16 sBannerLine{number}_{index}[] = {{ {', '.join([*units, '0'])} }};")
++            entries.append(f"reinterpret_cast<const char*>(sBannerLine{number}_{index})")
++        else:
++            # The retail Japanese renderer reads Shift-JIS. Keep starter prompts in its ASCII range.
++            if not string.isascii() or any(ord(c) < 32 or ord(c) > 126 for c in string):
++                raise ValueError(f"{locale}: Wii message {index} requires printable ASCII")
++            entries.append(json.dumps(string))
++    lines += [f"static const char* const sInterfaceRow{number}[] = {{", *(f"    {s}," for s in entries), "};"]
++    return lines
++
++
++def opening_banner(data, titles):
++    if len(data) < 0x600 or data[0x40:0x48] != b"IMET\0\0\x06\0":
++        raise ValueError("opening.bnr has an invalid IMET header")
++    banner = bytearray(data)
++    for number, title in titles.items():
++        encoded = title.encode("utf-16-be")
++        if len(encoded) > 82 or "\0" in title:
++            raise ValueError("opening.bnr title exceeds its field or contains NUL")
++        start = 0x5c + 84 * number
++        banner[start:start + 84] = encoded.ljust(84, b"\0")
++    banner[0x5f0:0x600] = bytes(16)
++    banner[0x5f0:0x600] = hashlib.md5(banner[:0x600]).digest()
++    return banner
++
++
++def write_opening_banner(disc, dtk, translations, locale, out):
++    strings = json.loads(translations.read_text(encoding="utf-8"))
++    titles = {i: strings[name if locale == "global" else locale][0]
++              for i, name in enumerate(SYSTEM_LOCALES, 1)}
++    for i in range(6, 10):
++        titles[i] = titles[1]
++    if locale != "global":
++        titles[0] = titles[1]
++    with tempfile.TemporaryDirectory(dir=out.parent) as tmp:
++        original = disc.parent.parent / "files/opening.bnr"
++        if disc.name != "main.dol":
++            original = Path(tmp) / "retail.bnr"
++            subprocess.run([str(dtk), "vfs", "cp", "-q", f"{disc}:files/opening.bnr", str(original)], check=True)
++        generated = Path(tmp) / "opening.bnr"
++        generated.write_bytes(opening_banner(original.read_bytes(), titles))
++        generated.replace(out)
++
++
++LANGUAGES = ("en", "de", "fr", "es", "it")
++
++
++def write_text_tables(folder: Path, output: Path) -> None:
++    """Write the Wii slot -> US slot maps and the texts of our own: a record without "override" fills Wii-only
++    slots (no US text) in every language; an "override" record replaces the mapped US text in the languages it
++    lists, where the US lines do not fit the lines the Wii prints."""
++    mapping = json.loads((folder / "text_map.json").read_text())
++    records = json.loads((folder / "wii_text.json").read_text(encoding="utf-8"))
++    interface = mapping["interface"][:301]
++    lines = []
++    for name, entries in (("Interface", interface), ("PC", mapping["pc"])):
++        values = ", ".join(str(i if i is not None else -1) for i in entries)
++        lines.append(f"static const s16 s{name}Map[] = {{ {values} }};")
++    lines.append("static const char* WiiOnlyText(u8 language, s32 index) {")
++    lines.append("    switch (index) {")
++    seen = set()
++    for record in records:
++        override = record.get("override", False)
++        for index in record["indices"]:
++            if index in seen or not 6 <= index < 301 or (interface[index] is not None) != override:
++                raise ValueError(f"unexpected {'override' if override else 'Wii-only'} index {index}")
++            seen.add(index)
++            lines.append(f"    case {index}:")
++        strings = []
++        for lang in LANGUAGES:
++            value = record["translations"].get(lang)
++            if value is None and override:
++                strings.append("0")
++                continue
++            if value is None or (not value and not override) or any(ord(c) < 32 for c in value):
++                raise ValueError(f"invalid text for {lang} at {record['indices']}")
++            strings.append('"' + ''.join(f'\\{c:03o}' for c in value.encode("cp1252")) + '"')
++        lines.append("        { static const char* const text[] = { " + ", ".join(strings)
++                     + " }; return text[language - 1]; }")
++    lines.extend(["    }", "    return 0;", "}"])
++    text = "\n".join(lines) + "\n"
++    if not output.exists() or output.read_text() != text:
++        output.write_text(text, encoding="ascii")
++
++
++def write_localization(translations: Path, locale: str, output: Path) -> None:
++    write_header(translations, locale, output / "include/wii_locale.h")
++    write_text_tables(translations.parent, output / "include/wii_text.h")
++
++
++def write_mod(output: Path, base: Path, features: str) -> None:
++    # Dolphin mounts patched files over the original partition and retains its disc identity.
++    (output / "files").mkdir(parents=True, exist_ok=True)
++    xml = """<wiidisc version="1" root="/">
++  <id game="R24J" developer="01" disc="0" version="0" />
++  <options><section name="Chibi-Robo!"><option name="Mod" id="mod" default="1">
++    <choice name="FEATURES"><patch id="mod" /></choice>
++  </option></section></options>
++  <patch id="mod">
++    <file disc="main.dol" external="/main.dol" />
++    <folder disc="/" external="/files" recursive="true" create="true" />
++  </patch>
++</wiidisc>
++"""
++    (output / "riivolution.xml").write_text(xml.replace("FEATURES", features), encoding="utf-8")
++    base = base.resolve()
++    try:
++        relative_base = Path(os.path.relpath(base, output))
++    except ValueError:  # Windows paths on different drives
++        relative_base = base
++    descriptor = {
++        "type": "dolphin-game-mod-descriptor", "version": 1,
++        "display-name": f"Chibi-Robo! (Wii, {features})",
++        "base-file": relative_base.as_posix(),
++        "riivolution": {"patches": [{"xml": "riivolution.xml", "root": ".",
++                        "options": [{"option-id": "mod", "choice": 1}]}]},
++    }
++    (output / "game.json").write_text(json.dumps(descriptor, indent=2) + "\n", encoding="utf-8")
++
++
++if __name__ == "__main__":
++    import argparse
++
++    parser = argparse.ArgumentParser()
++    parser.add_argument("disc", type=Path)
++    parser.add_argument("dtk", type=Path)
++    parser.add_argument("translations", type=Path)
++    parser.add_argument("locale")
++    parser.add_argument("output", type=Path)
++    args = parser.parse_args()
++    write_opening_banner(args.disc, args.dtk, args.translations, args.locale, args.output)
+diff --git a/tools/wii_stage_names.py b/tools/wii_stage_names.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..192fef492c8e2a58096cb5bd144941d76afafdf7
+--- /dev/null
++++ b/tools/wii_stage_names.py
+@@ -0,0 +1,174 @@
++"""Build a private Wii globals.bin overlay from an extracted GameCube globals.bin."""
++
++import argparse
++import hashlib
++import os
++import struct
++import tempfile
++import unicodedata
++from collections import defaultdict
++from pathlib import Path
++
++
++HEADER = struct.Struct("<6I")
++DIRECTORY = struct.Struct("<21I")
++WORD = struct.Struct("<I")
++R24J01_GLOBALS_SHA256 = "9b868ead42ba15d502f34d03f946e5c726fd3d782f22ff6c3087e702746e510d"
++# Directory byte offset, row count, number of pointer fields per row.
++TABLES = {"actor": (0x2C, 64, 1), "costume": (0x34, 9, 1), "stage": (0x38, 30, 2)}
++
++
++def metadata(blob):
++    if len(blob) < HEADER.size:
++        raise ValueError("truncated globals.bin header")
++    data, size, collision, collision_size, script, script_size = HEADER.unpack_from(blob)
++    end = len(blob) - HEADER.size
++    if (data != 0 or size < DIRECTORY.size or collision != ((size + 3) & ~3)
++            or script != ((collision + collision_size + 3) & ~3) or not collision_size or not script_size
++            or not 0 <= end - script - script_size <= 3):
++        raise ValueError("invalid globals.bin section offsets or lengths")
++    return blob[HEADER.size:HEADER.size + size]
++
++
++def name_tables(data):
++    """Validate retail row counts and string extents, including stage descriptions."""
++    offsets = DIRECTORY.unpack_from(data)
++    if offsets[0] != DIRECTORY.size or any(p and not DIRECTORY.size <= p < len(data) for p in offsets):
++        raise ValueError("invalid metadata directory")
++    starts = [p for p in offsets if p]
++    if len(set(starts)) != len(starts):
++        raise ValueError("overlapping metadata tables")
++
++    tables = {}
++    for name, (slot, count, fields) in TABLES.items():
++        start = offsets[slot // 4]
++        limit = min((p for p in starts if p > start), default=len(data))
++        stride = fields * WORD.size
++        cursor = start + count * stride
++        if not start or cursor > limit:
++            raise ValueError(f"invalid {name} table size")
++        rows = []
++        # Retail puts every name directly after the records, then every description.
++        for field in range(fields):
++            for index in range(count):
++                pos = start + index * stride + field * WORD.size
++                if WORD.unpack_from(data, pos)[0] != cursor:
++                    raise ValueError(f"{name} {index}: unexpected field {field} string offset")
++                end = data.find(b"\0", cursor, limit)
++                if end < 0:
++                    raise ValueError(f"{name} {index}: unterminated field {field}")
++                if field == 0:
++                    rows.append((pos, data[cursor:end]))
++                cursor = end + 1
++        if cursor != limit:
++            raise ValueError(f"{name} strings do not end at the next metadata table")
++        tables[name] = rows
++    return tables
++
++
++# Letters and punctuation without a useful ASCII canonical decomposition.
++ASCII_EQUIVALENTS = str.maketrans({
++    "ß": "ss", "Æ": "AE", "æ": "ae", "Œ": "OE", "œ": "oe", "Ø": "O", "ø": "o",
++    "‘": "'", "’": "'", "“": '"', "”": '"', "–": "-", "—": "-", "…": "...",
++    "¡": "!", "¿": "?", "\N{NO-BREAK SPACE}": " ",
++})
++
++
++def western_name(raw, fold):
++    try:
++        text = raw.decode("cp1252" if fold else "ascii")
++    except UnicodeDecodeError:
++        return None
++    if fold:
++        text = unicodedata.normalize("NFD", text.translate(ASCII_EQUIVALENTS))
++        text = "".join(c for c in text if not unicodedata.combining(c))
++    # Backslash introduces a graphics escape, and the message formatter rewrites '$'.
++    if any(not " " <= c <= "~" or c in "\\$" for c in text):
++        return None
++    return text.encode("ascii")
++
++
++def build_overlay(wii, gc, fold=False):
++    data = metadata(wii)
++    original = name_tables(data)
++    donor = name_tables(metadata(gc))
++    updated = bytearray(data)
++    report = defaultdict(list)
++    for table in TABLES:
++        for index, ((pos, old), (_, raw)) in enumerate(zip(original[table], donor[table])):
++            key = f"{table}[{index}]"
++            if raw == old:
++                report["unchanged"].append(key)
++                continue
++            if not raw:
++                report["kept for empty donor"].append(key)
++                continue
++            name = western_name(raw, fold)
++            if name is None:
++                report["kept for unsupported characters"].append(key)
++                continue
++            # R24J01 stage titles display 20 glyphs. The message formatter has a
++            # 128-byte string scratch buffer for arguments such as actor names.
++            if len(name) > (20 if table == "stage" else 127):
++                report["kept for length"].append(key)
++                continue
++            if name != raw:
++                report["folded"].append(key)
++            if name == old:
++                report["unchanged"].append(key)
++                continue
++            WORD.pack_into(updated, pos, len(updated))
++            updated.extend(name + b"\0")
++            report["changed"].append(key)
++
++    if len(updated) == len(data):
++        return wii, report
++    _, _, collision, collision_size, script, script_size = HEADER.unpack_from(wii)
++    new_collision = (len(updated) + 3) & ~3
++    new_script = script + new_collision - collision
++    header = HEADER.pack(0, len(updated), new_collision, collision_size, new_script, script_size)
++    padding = bytes(new_collision - len(updated))
++    return header + updated + padding + wii[HEADER.size + collision:], report
++
++
++def write_overlay(gc_file, wii_file, output, fold=False):
++    for source in (gc_file, wii_file):
++        if output.resolve() == source.resolve() or (output.exists() and output.samefile(source)):
++            raise ValueError("choose an output path different from both inputs")
++    wii = wii_file.read_bytes()
++    if hashlib.sha256(wii).hexdigest() != R24J01_GLOBALS_SHA256:
++        raise ValueError("expected the original R24J01 files/bin/globals.bin as Wii input")
++    result, report = build_overlay(wii, gc_file.read_bytes(), fold)
++    output.parent.mkdir(parents=True, exist_ok=True)
++    tmp = None
++    try:
++        with tempfile.NamedTemporaryFile(dir=output.parent, delete=False) as f:
++            tmp = Path(f.name)
++            f.write(result)
++        os.replace(tmp, output)
++    finally:
++        if tmp is not None:
++            tmp.unlink(missing_ok=True)
++    return report
++
++
++def main():
++    parser = argparse.ArgumentParser(description=__doc__)
++    parser.add_argument("gc", type=Path, help="private, extracted GameCube language globals.bin")
++    parser.add_argument("wii", type=Path, help="original R24J01 files/bin/globals.bin")
++    parser.add_argument("output", type=Path, help="overlay file, e.g. build/wii-en-US/files/bin/globals.bin")
++    parser.add_argument("--fold-cp1252", action="store_true",
++                        help="allow lossy conversion of Western accents and punctuation to ASCII")
++    args = parser.parse_args()
++    try:
++        report = write_overlay(args.gc, args.wii, args.output, args.fold_cp1252)
++    except (ValueError, OSError) as exc:
++        parser.exit(1, f"{parser.prog}: {exc}\n")
++    print(f"{args.output}: {len(report['changed'])} of 103 display names changed")
++    for reason in ("kept for empty donor", "kept for unsupported characters", "kept for length", "folded"):
++        if report[reason]:
++            print(f"{reason} ({len(report[reason])}): {', '.join(report[reason])}")
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/tools/wii_text_map.py b/tools/wii_text_map.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..432a19502cd091e1c73ee9a600997bb859a11521
+--- /dev/null
++++ b/tools/wii_text_map.py
+@@ -0,0 +1,122 @@
++"""Print the R24J01 -> GGTE01 text index map for two original DOLs.
++
++The values index the US build's tables, which every non-Japanese language of the Wii DOL shares. The US
++build keeps its Japanese table (gJapaneseInterfaceText) in the same order wherever both languages print the
++same slot, so identical Japanese text gives the slot; the save prompts below are the exception."""
++
++import argparse
++import hashlib
++import json
++import struct
++from collections import defaultdict
++from pathlib import Path
++
++
++class Dol:
++    def __init__(self, path, version):
++        self.data = path.read_bytes()
++        manifest = Path(__file__).resolve().parents[1] / "config" / version / "build.sha1"
++        expected = next(line.split()[0] for line in manifest.read_text().splitlines()
++                        if line.split()[-1] == f"build/{version}/main.dol")
++        if hashlib.sha1(self.data).hexdigest() != expected:
++            raise ValueError(f"{path} is not the original {version} main.dol")
++        self.sections = list(zip(*(struct.unpack_from(">18I", self.data, pos)
++                                   for pos in (0, 72, 144))))
++
++    def offset(self, address):
++        for offset, start, size in self.sections:
++            if start <= address < start + size:
++                return offset + address - start
++        raise ValueError(f"unmapped DOL address {address:#x}")
++
++    def pointers(self, address, count):
++        return struct.unpack_from(f">{count}I", self.data, self.offset(address))
++
++    def strings(self, address, count):
++        result = []
++        for pointer in self.pointers(address, count):
++            offset = self.offset(pointer)
++            result.append(self.data[offset:self.data.index(0, offset)])
++        return result
++
++
++def match_table(wii, gc, skip=0):
++    candidates = defaultdict(list)
++    for index, value in enumerate(gc):
++        candidates[value].append(index)
++    mapped = [None] * len(wii)
++    unclear = []
++    for index in range(skip, len(wii)):
++        hits = candidates[wii[index]]
++        if len(hits) == 1:
++            mapped[index] = hits[0]
++        elif hits:
++            unclear.append(index)
++    return mapped, unclear
++
++
++# GC call sites under src/game at ae152594. For multiline card prompts, the
++# matched heading, surrounding unique entries and line position identify each
++# continuation/padding slot within the same five-slot record.
++# (Wii start, Japanese GC start, number of consecutive slots)
++INTERFACE_DECISIONS = [
++    # stg.cpp:2919-24 adds the menu base. Slots 48..56 are successive
++    # placeholders for mode titles (:856-870) and panel fields (:532-659).
++    (49, 48, 9),
++    (60, 59, 1),  # stg.cpp:1054, contextual action, relative PC label 14.
++    (59, 58, 1),  # stg.cpp:1038, PC menu return action (label 13 + base 45).
++    (65, 64, 2),  # stg.cpp:10585, yes/no for the scrap transaction.
++    (79, 78, 1),  # stg.cpp:10585, second line confirming that transaction.
++    (86, 85, 3),  # gameccameraset.cpp:260, DVD states 4/6 insert, 11 unreadable.
++    (98, 97, 1),  # gxb.cpp:2619, option-panel help now describes menu controls.
++    (102, 101, 2),  # gxb.cpp:2604, load-screen confirmation choices.
++]
++
++
++# The save prompts are five-line records. Japanese and English break the same message into lines at
++# different places, and the US build prints them through its own branch (IsJapanese()), so line n of a
++# Japanese record is not line n of the English one: the record maps as a whole, the Wii prints its lines
++# 0..n from the start of the US record. (Wii start, US start, number of records.) Wii 164-168 is the
++# Wii's own "no free files" record; Wii 254-263 are the two damaged-card records the US build added at
++# 248-257 and the Japanese build lacks.
++SAVE_RECORDS = [(104, 103, 12), (169, 163, 17), (254, 248, 2)]
++# The save banner's title and play time and the yes/no marks: the US build prints them from slots of its
++# own, past the Japanese table (memcardbanner.cpp, DrawOXMenu).
++BANNER_SLOTS = {264: 258, 265: 259, 266: 260, 267: 261}
++
++
++def build_map(wii, gc):
++    interface_base, = wii.pointers(0x802FF2C8, 1)
++    pc_base, = wii.pointers(0x802FF2E4, 1)
++    # The requested 325-word window includes the adjacent 24 PC pointers.
++    count = (pc_base - interface_base) // 4
++    interface, unclear = match_table(wii.strings(interface_base, count),
++                                     gc.strings(0x802167E8, 250), skip=6)
++    interface.extend([None] * (325 - count))
++    for start, target, length in INTERFACE_DECISIONS:
++        for delta in range(length):
++            interface[start + delta] = target + delta
++    for index in range(SAVE_RECORDS[0][0], max(BANNER_SLOTS) + 1):
++        interface[index] = None
++    for start, target, records in SAVE_RECORDS:
++        for line in range(5 * records):
++            interface[start + line] = target + line
++    for index, target in BANNER_SLOTS.items():
++        interface[index] = target
++    pc, pc_unclear = match_table(wii.strings(pc_base, 24), gc.strings(0x80216BD0, 24))
++    # stg.cpp:1139 keeper animation, :222/:1131 rank messages by level,
++    # :1152 state 9 and :1163 default ticker. All pass the index unchanged.
++    for index in [2, *range(4, 15), 16, 19]:
++        pc[index] = index
++    # Flat list of Wii slots: PC index n occupies interface window slot 301+n.
++    return {"interface": interface, "pc": pc, "unclear": sorted(
++        [i for i in unclear if interface[i] is None]
++        + [count + i for i in pc_unclear if pc[i] is None])}
++
++
++if __name__ == "__main__":
++    parser = argparse.ArgumentParser(description=__doc__)
++    parser.add_argument("wii_dol", type=Path)
++    parser.add_argument("gc_dol", type=Path)
++    args = parser.parse_args()
++    print(json.dumps(build_map(Dol(args.wii_dol, "R24J01"), Dol(args.gc_dol, "GGTE01")), indent=2))

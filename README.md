@@ -14,15 +14,24 @@ repository uses as the git submodule `decomp/`.
 ```sh
 git clone --recursive https://github.com/LabDennis/chibirobo-wii-mod.git
 cd chibirobo-wii-mod
-# put your discs into decomp/orig/R24J01, decomp/orig/GGTE01, decomp/orig/GGTP01
+# put your discs into decomp/orig/R24J01/, decomp/orig/GGTE01/, decomp/orig/GGTP01/
 python3 build.py --langpack global --gcncon --iso
 ```
+
+`build.py` makes a patched copy of the decomp in `build/decomp` and builds it
+there. The output appears under `build/decomp/build/wii-*/`, named after the
+options, for example `build/decomp/build/wii-global-gcncon/` with `main.dol`,
+`game.json` for Dolphin, `riivolution.xml`, and with `--iso` the disc image.
 
 No game data is in this repository: everything comes from your discs.
 
 ## Status
 
-The mod code still lives in the decomp's `wii-mod` branch, which `decomp/`
-points at. Next steps: move the mod code and its hooks into this repository,
-keep the decomp clean, and generate every translation from the discs instead of
+`decomp/` points at the clean decomp, which holds no mod code. The mod is
+carried as `patches/wii-mod.patch` on top of it: the mod's `#if` blocks in the
+game code, its configure options and build steps, its tools and the
+translations in `mods/wii-localization/`.
+
+Next steps: split the patch into mod units that the game reaches through
+one-line hooks, and generate the translations from the discs instead of
 shipping text.

@@ -90,7 +90,7 @@ index 6453d912ac540784cfa5d439513dba0694e4265f..aa1c589d0164f95b030c82f1459364d0
  
  [Credits and license notices](NOTICE)
 diff --git a/configure.py b/configure.py
-index 2746edab77ad7607f3efddfda9f44a8dcfc2b3a3..f00b2e67a70ae787f3cd4b487ff6a8259c057f28 100644
+index 3d114b2d0f6263f03860353fa5cdc52596b1869d..56ccdd5e8ea85dffcdc48da5df01c5e4182714d4 100644
 --- a/configure.py
 +++ b/configure.py
 @@ -13,9 +13,11 @@
@@ -250,7 +250,7 @@ index 2746edab77ad7607f3efddfda9f44a8dcfc2b3a3..f00b2e67a70ae787f3cd4b487ff6a825
                  Object(Equivalent, "game/wii/cpad.cpp", extra_cflags=["-Cpp_exceptions on"]),
                  Object(Equivalent, "game/wii/cpadact.cpp", extra_cflags=["-Cpp_exceptions on"]),
                  Object(Matching, "game/wii/nandfile.cpp", extra_cflags=["-Cpp_exceptions on"]),
-@@ -1334,10 +1415,111 @@ def append_treemap_step(config: ProjectConfig) -> None:
+@@ -1332,10 +1413,111 @@ def append_treemap_step(config: ProjectConfig) -> None:
          )
  
  
@@ -1589,7 +1589,7 @@ index 9904833897c631d03e6f8f03a34872ec1d8ae169..5a306f104295bf668d0ae75b27e30f19
  #else
  		strcpy(stage->mDataPath,
 diff --git a/src/game/wii/cfile.cpp b/src/game/wii/cfile.cpp
-index 2ab1ab7c14dbe961f3a70cdeaa22c516ffa0c3d8..ff57320e4eb26dc68cae21dc69ad157266fcdecb 100644
+index 686f5e3fe22fbb6639199b67e32427debb63f7f2..9ad8b3bda2e4eb7e36591c0315d376c488e992f9 100644
 --- a/src/game/wii/cfile.cpp
 +++ b/src/game/wii/cfile.cpp
 @@ -2,6 +2,10 @@
@@ -1603,8 +1603,8 @@ index 2ab1ab7c14dbe961f3a70cdeaa22c516ffa0c3d8..ff57320e4eb26dc68cae21dc69ad1572
  
  // The Wii CFile keeps two flags where the GameCube one keeps the archive pointer: the archive is
  // always the current one, and a buffer handed in by the caller is never freed.
-@@ -126,9 +130,34 @@ BOOL CFile::IsInArchive(const char* path)
- 	return gCurrentFileArchive != NULL ? fn_801FEE48(&gCurrentFileArchive->mHandle, path) >= 0 : FALSE;
+@@ -119,9 +123,34 @@ BOOL CFile::IsInArchive(const char* path)
+ 	return gCurrentFileArchive != NULL ? ARCConvertPathToEntrynum(&gCurrentFileArchive->mHandle, path) >= 0 : FALSE;
  }
  
 +#if defined(WII_LANGUAGE) || defined(WII_LANGUAGE_SYSTEM)
@@ -1619,7 +1619,7 @@ index 2ab1ab7c14dbe961f3a70cdeaa22c516ffa0c3d8..ff57320e4eb26dc68cae21dc69ad1572
 +	if (strlen(path) + sizeof("/lang/en/") > capacity)
 +		return -1;
 +	sprintf(localized, "/lang/%s/%s", codes[gGame.mLanguage], path);
-+	return fn_80190238(localized);
++	return DVDConvertPathToEntrynum(localized);
 +}
 +#endif
 +
@@ -1636,9 +1636,9 @@ index 2ab1ab7c14dbe961f3a70cdeaa22c516ffa0c3d8..ff57320e4eb26dc68cae21dc69ad1572
  	s32 entrynum = -1;
 +#endif
  	if (gCurrentFileArchive != NULL) {
- 		entrynum = fn_801FEE48(&gCurrentFileArchive->mHandle, path);
+ 		entrynum = ARCConvertPathToEntrynum(&gCurrentFileArchive->mHandle, path);
  	}
-@@ -140,8 +169,22 @@ s32 CFile::ConvertPathToEntrynum(const char* path)
+@@ -133,8 +162,22 @@ s32 CFile::ConvertPathToEntrynum(const char* path)
  
  s32 CFile::OpenPath(const char* path)
  {
@@ -1734,12 +1734,12 @@ index eadf2f3a527a6ffc2f9d58bb2f1ab22ea33e5319..90e7fe3bcd9dfb83b5fbdeca9abda754
  
  void CPadEx::SetMainStickRange(f32 inner, f32 outer)
 diff --git a/src/game/wii/gamemain.cpp b/src/game/wii/gamemain.cpp
-index 7e110ab84e5a5eff5aaad3f7165e6cb47c239346..26fd13f29735f145565df8e6eb396b6b32a50b34 100644
+index 9c6ad2c8dd22f33b5c6c2289006a91d0213203f0..1ea9860e61cd79619ab656f04d8943b76d63d7ed 100644
 --- a/src/game/wii/gamemain.cpp
 +++ b/src/game/wii/gamemain.cpp
-@@ -33,11 +33,20 @@ void CBase::Start()
+@@ -32,11 +32,20 @@ void CBase::Start()
  	DVDSetAutoFatalMessaging(TRUE);
- 	fn_801905CC("/cb/");
+ 	DVDChangeDir("/cb/");
  	fn_80199AE4();
 +	// the mod's language has to be known before the font and the resident text are set up
 +#if defined(WII_LANGUAGE_SYSTEM)

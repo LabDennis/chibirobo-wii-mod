@@ -1471,7 +1471,7 @@ index 0000000000000000000000000000000000000000..4486836e354df7d4c8f0c9c3267d5c6d
 +  }
 +]
 diff --git a/src/game/globalresources.cpp b/src/game/globalresources.cpp
-index 5228fc34d4f5d8bbdaf31ab94f6c48c954f170ba..72a0ae0d8028160dec8e25e1ea7c9c00467c2f58 100644
+index a54a3ba9a0c0bc3ebdaa7c3523f55f1970263f24..d6fdd9af3a54692ac9783400733cd732d560a5cc 100644
 --- a/src/game/globalresources.cpp
 +++ b/src/game/globalresources.cpp
 @@ -9,6 +9,47 @@
@@ -1562,7 +1562,7 @@ index 5228fc34d4f5d8bbdaf31ab94f6c48c954f170ba..72a0ae0d8028160dec8e25e1ea7c9c00
  	return gJapaneseInterfaceText[index];
  #else
  	return gInterfaceTextByLanguage[gGame.mLanguage][index];
-@@ -507,8 +570,12 @@ extern "C" BOOL IsGlobalDataLoaded()
+@@ -508,8 +571,12 @@ extern "C" BOOL IsGlobalDataLoaded()
   */
  extern "C" BOOL LoadGlobalResourceData()
  {
@@ -1576,7 +1576,7 @@ index 5228fc34d4f5d8bbdaf31ab94f6c48c954f170ba..72a0ae0d8028160dec8e25e1ea7c9c00
  	char path[0x40];
  	sprintf(path, "bin%s/%s", gResourceDirectorySuffixByLanguage[gGame.mLanguage], gGlobalResourceFileName);
 diff --git a/src/game/stage_data.cpp b/src/game/stage_data.cpp
-index 78004d758506fac369e5ede10dc349893bafec5c..7f57567311929730854cf60b81484b4c18357bed 100644
+index 9904833897c631d03e6f8f03a34872ec1d8ae169..5a306f104295bf668d0ae75b27e30f19fed9e2ed 100644
 --- a/src/game/stage_data.cpp
 +++ b/src/game/stage_data.cpp
 @@ -2684,7 +2684,7 @@ extern "C" BOOL AdvanceStageLoad(Stage* stage, s32 index)

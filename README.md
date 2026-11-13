@@ -27,10 +27,11 @@ No game data is in this repository: everything comes from your discs.
 
 ## Status
 
-`decomp/` points at the clean decomp, which holds no mod code. The mod is
-carried as `patches/wii-mod.patch` on top of it: the mod's `#if` blocks in the
-game code, its configure options and build steps, its tools and the
-translations in `mods/wii-localization/`.
+`decomp/` follows the decomp's `all-releases` branch, which builds all four
+releases (GGTE01, GGTJ01_01, GGTP01 and R24J01) and holds no mod code. The
+mod is carried as `patches/wii-mod.patch` on top of it: the mod's `#if`
+blocks in the game code, its configure options and build steps, its tools and
+the translations in `mods/wii-localization/`.
 
 Next steps: split the patch into mod units that the game reaches through
 one-line hooks, and generate the translations from the discs instead of

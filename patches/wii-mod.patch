@@ -3253,10 +3253,10 @@ index 00000000..25078cc2
 +                         ([None, None, 1], [0]))
 diff --git a/tools/wii_iso.py b/tools/wii_iso.py
 new file mode 100644
-index 00000000..64be8d78
+index 00000000..cad95d8e
 --- /dev/null
 +++ b/tools/wii_iso.py
-@@ -0,0 +1,175 @@
+@@ -0,0 +1,177 @@
 +"""Build a Wii disc image from the original disc and a mod's main.dol and files.
 +
 +dtk extracts the original once; every build then links a fresh tree from it, puts the mod's files in, and has
@@ -3426,7 +3426,9 @@ index 00000000..64be8d78
 +        dol.write_bytes(port_dol(retail, patched, args.dol.read_bytes()))
 +    count = prepare_tree(original, args.work / "root", dol, args.files, args.patch)
 +    print(f"{count} file(s) from the mod")
-+    subprocess.run([str(args.wit), "copy", "--overwrite", str(args.work / "root"), str(args.out)], check=True)
++    # Region 3 is none of Japan (0), USA (1), Europe (2) and Korea (4). Dolphin then takes the region set there
++    # as the fallback instead of forcing the disc's language, Japanese, so the mod's languages follow the console
++    subprocess.run([str(args.wit), "copy", "--overwrite", "--region", "3", str(args.work / "root"), str(args.out)], check=True)
 +    write_depfile(args.out, *[folder for folder in (args.files, args.patch) if folder])
 +
 +

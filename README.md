@@ -11,6 +11,8 @@ One build, no options. What is in it:
   GameCube discs at build time.
 - A first screen of its own in place of the Wii Remote strap pages: "Press A on your controller",
   drawn with the game's font over its diagonal stripes, both taken from your disc.
+- The disc image carries no region (code 3 instead of Japan), so that Dolphin does not switch the
+  game to Japanese: it then uses its fallback region and the language set for the Wii.
 - The first A press there picks the controls: on a GameCube controller the GameCube controls, on
   the Wii Remote the Wii controls.
 

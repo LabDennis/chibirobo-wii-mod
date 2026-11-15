@@ -90,7 +90,7 @@ index 6453d912..aa1c589d 100644
  
  [Credits and license notices](NOTICE)
 diff --git a/configure.py b/configure.py
-index a6cb858a..c96bcadf 100644
+index cdcee513..5ac686c3 100644
 --- a/configure.py
 +++ b/configure.py
 @@ -13,9 +13,11 @@
@@ -280,12 +280,16 @@ index a6cb858a..c96bcadf 100644
                         extra_cflags=["-Cpp_exceptions on", "-ipa file"]),
                  Object(Equivalent, "game/wii/atcmenuselection.cpp"),
                  # the whole file, 0x800AAD1C-0x800AC07C. GC/3.0a3 to 3.0a5 reproduce it; 3.0a5.2 puts the
-@@ -1209,21 +1308,21 @@ if wii:
+@@ -1209,17 +1308,17 @@ if wii:
                  # no auto-inlining of the small file functions: under -inline auto the
                  # compiler inlines OpenPath/GetResult/ReadAsync into their callers where
                  # retail keeps them as calls
 -                Object(NonMatching, "game/wii/cfile.cpp", mw_version="GC/3.0a5", extra_cflags=["-Cpp_exceptions on", "-ipa file", "-inline noauto"]),
 +                Object(bool(args.wii_locale), "game/wii/cfile.cpp", mw_version="GC/3.0a5", extra_cflags=["-Cpp_exceptions on", "-ipa file", "-inline noauto"]),
+                 # the RFNU/RFNT font file loader + glyph cache between the console font paths;
+                 # the small setup helpers stay calls in retail, so no auto-inlining here either
+-                Object(NonMatching, "game/wii/cfont.cpp", mw_version="GC/3.0a5", extra_cflags=["-Cpp_exceptions on", "-ipa file", "-inline noauto"]),
++                Object(bool(args.wii_locale), "game/wii/cfont.cpp", mw_version="GC/3.0a5", extra_cflags=["-Cpp_exceptions on", "-ipa file", "-inline noauto"]),
                  # init.cpp (the name is in its OSPanic call): InitTwoLightSet and InitFourLightSet
                  # copy their vectors through the registers retail uses under GC/3.0a3.2 to 3.0a5
                  # and through others under 3.0a5.2, and every Wii build is far off. -ipa file: the
@@ -294,19 +298,19 @@ index a6cb858a..c96bcadf 100644
                  # 0x8003607C and 0x80036254; without the flag they come out in the reverse order
 -                Object(NonMatching, "game/wii/init.cpp", mw_version="GC/3.0a5", extra_cflags=["-Cpp_exceptions on", "-ipa file"]),
 +                Object(bool(args.wii_locale), "game/wii/init.cpp", mw_version="GC/3.0a5", extra_cflags=["-Cpp_exceptions on", "-ipa file"]),
-                 # no auto-inlining of the small pad functions: under -inline auto the
-                 # compiler inlines Collect*/Init into their callers where retail keeps
-                 # them as calls; IsGameCubePadActive is inline-declared and still inlined
-                 # into Update (no bl, retail 0x802B2528), with its standalone copy at its
-                 # own address (retail 0x802B1D84)
--                Object(Equivalent, "game/wii/cpad.cpp", mw_version="GC/3.0a5", extra_cflags=["-Cpp_exceptions on", "-ipa file", "-inline noauto"]),
+                 # the whole file, linked. No auto-inlining of the small pad functions: under
+                 # -inline auto the compiler inlines Collect*/Init into their callers where retail
+                 # keeps them as calls; IsGameCubePadActive is inline-declared and still inlined
+@@ -1232,7 +1331,7 @@ if wii:
+                 # the text drawing unit 0x802AD310-0x802AEBB0; the GameCube cgs.cpp pairs
+                 # are the reconstruction base
+                 Object(NonMatching, "game/wii/cgs.cpp", mw_version="GC/3.0a5", extra_cflags=["-Cpp_exceptions on", "-ipa file"]),
 -                Object(Equivalent, "game/wii/cpadact.cpp", mw_version="GC/3.0a5", extra_cflags=["-Cpp_exceptions on", "-ipa file"]),
-+                Object(Equivalent or args.wii_gamecube_pad, "game/wii/cpad.cpp", mw_version="GC/3.0a5", extra_cflags=["-Cpp_exceptions on", "-ipa file", "-inline noauto"]),
 +                Object(Equivalent or args.wii_gamecube_pad, "game/wii/cpadact.cpp", mw_version="GC/3.0a5", extra_cflags=["-Cpp_exceptions on", "-ipa file"]),
                  Object(Matching, "game/wii/nandfile.cpp", extra_cflags=["-Cpp_exceptions on"]),
                  # retail has no call to StartWiiSaveJob (declared inline, inlined into its
                  # callers) while BuildWiiSaveBanner and CheckWiiSaveBanner are reached via
-@@ -1595,10 +1694,110 @@ def append_treemap_step(config: ProjectConfig) -> None:
+@@ -1604,10 +1703,110 @@ def append_treemap_step(config: ProjectConfig) -> None:
          )
  
  
@@ -1746,13 +1750,53 @@ index 9e4fa84a..f44e12a2 100644
  	s32 result = Open(mPath);
  	if (result < 0) {
  		if (mInArchive) {
+diff --git a/src/game/wii/cfont.cpp b/src/game/wii/cfont.cpp
+index 8f2b2e47..75f2da4e 100644
+--- a/src/game/wii/cfont.cpp
++++ b/src/game/wii/cfont.cpp
+@@ -3,6 +3,9 @@
+ #include "game/mm.h"
+ #include <dolphin/os.h>
+ #include <string.h>
++#if defined(WII_LANGUAGE_SYSTEM) || defined(WII_LANGUAGE)
++#include "game/wii/cgame.h" // mod: the language decides what a lead byte is
++#endif
+ 
+ // the Wii font unit. unlike the GameCube it can draw text from an RFNU/RFNT
+ // font file loaded next to the console font; the file's parser lives in its
+@@ -145,7 +148,12 @@ extern "C" CTexObj* GetFontGlyphTexture(CFont* font, const char* str, u32 arg3,
+ 		OSPanic("cfont.cpp", 0x112, "");
+ 	} else if (sFontEnv.resourcePath != NULL && arg3 == 0) {
+ 		u16 code = (u8)str[0];
++#if defined(WII_LANGUAGE_SYSTEM) || defined(WII_LANGUAGE)
++		// mod: a two-byte lead only in Japanese, 0xE0-0xFC are the accented small letters elsewhere
++		if (gGame.mLanguage == 0 && ((code >= 0x81 && code <= 0x9F) || (code >= 0xE0 && code <= 0xFC))) {
++#else
+ 		if ((code >= 0x81 && code <= 0x9F) || (code >= 0xE0 && code <= 0xFC)) {
++#endif
+ 			code = (code << 8) | (u8)str[1];
+ 		}
+ 		SWiiFontResource* res = &sFontResource;
+@@ -199,7 +207,12 @@ extern "C" s8 HasFontGlyph(CFont* font, const char* str)
+ 	CFile* file = &sFontResource.mFile;
+ 	if (file->IsLoaded()) {
+ 		u16 code = (u8)str[0];
++#if defined(WII_LANGUAGE_SYSTEM) || defined(WII_LANGUAGE)
++		// mod: a two-byte lead only in Japanese, 0xE0-0xFC are the accented small letters elsewhere
++		if (gGame.mLanguage == 0 && ((code >= 0x81 && code <= 0x9F) || (code >= 0xE0 && code <= 0xFC))) {
++#else
+ 		if ((code >= 0x81 && code <= 0x9F) || (code >= 0xE0 && code <= 0xFC)) {
++#endif
+ 			code = (code << 8) | (u8)str[1];
+ 		}
+ 		nw4r::ut::CharWidths glyph  = sFontResource.mParser.GetCharWidths(code);
 diff --git a/src/game/wii/cpad.cpp b/src/game/wii/cpad.cpp
-index 4791ff67..eec1c0e4 100644
+index 9c9bedf9..b70e8aa7 100644
 --- a/src/game/wii/cpad.cpp
 +++ b/src/game/wii/cpad.cpp
-@@ -57,6 +57,15 @@ static WiiStickRange sStickRanges[2];
+@@ -56,6 +56,15 @@ struct WiiStickRange {
+ static WiiStickRange sStickRanges[2];
  static WiiRawSample sRawSamples[16];
- static BOOL (CPadOne::*sGameCubePadCheck)() const = &CPadOne::IsGameCubePadActive;
  
 +#if defined(WII_GAMECUBE_PAD)
 +#include "game/wii/cgame.h"
@@ -1766,7 +1810,7 @@ index 4791ff67..eec1c0e4 100644
  // Hardware masks returned by KPAD for the Wii Remote and its extensions.
  enum {
  	WPAD_BUTTON_LEFT  = 0x0001,
-@@ -236,6 +245,16 @@ void CPadOne::Update(const PADStatus* status, s32 frames)
+@@ -239,6 +248,16 @@ void CPadOne::Update(const PADStatus* status, s32 frames)
  	}
  	mProbeResult = probe;
  	mDeviceType  = device;
@@ -1783,7 +1827,7 @@ index 4791ff67..eec1c0e4 100644
  
  	u64 buttons = 0;
  	u32 claimed = 0;
-@@ -880,6 +899,11 @@ PADStatus gWiiGameCubePads[4];
+@@ -883,6 +902,11 @@ PADStatus gWiiGameCubePads[4];
  
  void CPadEx::Init(u8 inputMask)
  {
@@ -1795,7 +1839,7 @@ index 4791ff67..eec1c0e4 100644
  	mInputMask = inputMask;
  	if (mInputMask & InputGameCube) {
  		PADInit();
-@@ -932,6 +956,30 @@ void CPadEx::Update(s32 frames)
+@@ -935,6 +959,30 @@ void CPadEx::Update(s32 frames)
  	for (u8 port = 0; port < 4; ++port) {
  		gWiiPads[port].Update(&gWiiGameCubePads[port], frames);
  	}
@@ -1827,13 +1871,16 @@ index 4791ff67..eec1c0e4 100644
  
  void CPadEx::SetMainStickRange(f32 inner, f32 outer)
 diff --git a/src/game/wii/cpadact.cpp b/src/game/wii/cpadact.cpp
-index 005b5906..5e5f5193 100644
+index 005b5906..0555de09 100644
 --- a/src/game/wii/cpadact.cpp
 +++ b/src/game/wii/cpadact.cpp
-@@ -299,6 +299,26 @@ void CPadAct::Update(u32 frames)
+@@ -299,9 +299,29 @@ void CPadAct::Update(u32 frames)
  	mButton                                                               = pad.mButton;
  	mDirButton                                                            = pad.mDirButton;
  	mTrigger                                                              = pad.mTrigger;
+-	mDirTrigger                                                           = pad.mDirTrigger;
+-	mRepeat                                                               = pad.mRepeat;
+-	mDirRepeat                                                            = pad.mDirRepeat;
 +#if defined(WII_GAMECUBE_PAD)
 +	// mod: the cameras read the Wii Remote's Control Pad from these two words, not from the actions, and nothing
 +	// in the game reads the C-stick. With a GameCube controller the C-stick stands in for the Control Pad here
@@ -1854,29 +1901,46 @@ index 005b5906..5e5f5193 100644
 +		}
 +	}
 +#endif
- 	mDirTrigger                                                           = pad.mDirTrigger;
- 	mRepeat                                                               = pad.mRepeat;
- 	mDirRepeat                                                            = pad.mDirRepeat;
++	mDirTrigger = pad.mDirTrigger;
++	mRepeat     = pad.mRepeat;
++	mDirRepeat  = pad.mDirRepeat;
+ 
+ 	if (pad.mAnalogL) {
+ 		mAnalogL = pad.mAnalogL - 30.0f;
 diff --git a/src/game/wii/homemenu.cpp b/src/game/wii/homemenu.cpp
-index a55e29fb..3adcee58 100644
+index a55e29fb..bf01369c 100644
 --- a/src/game/wii/homemenu.cpp
 +++ b/src/game/wii/homemenu.cpp
-@@ -171,7 +171,12 @@ extern "C" void InitWiiHomeMenu(WiiHomeMenu* menu)
+@@ -171,14 +171,19 @@ extern "C" void InitWiiHomeMenu(WiiHomeMenu* menu)
  	menu->mInfo.mem            = NULL;
  	menu->mInfo.sound_callback = NULL;
  	menu->mInfo.backFlag       = FALSE;
 -	menu->mInfo.region         = SCGetLanguage();
+-	menu->mInfo.cursor         = 0;
+-	menu->mInfo.messageFlag    = 0;
+-	menu->mInfo.memSize        = 0x80000;
+-	menu->mInfo.frameDelta     = 1;
+-	menu->mInfo.adjust.x       = 1;
+-	menu->mInfo.adjust.y       = 1;
+-	menu->mInfo.pAllocator     = &gWiiPadAllocator;
 +#if defined(WII_LANGUAGE) || defined(WII_LANGUAGE_SYSTEM)
 +	// the mod: the menu's messages in the language its files are loaded for
 +	menu->mInfo.region = gGame.mLanguage;
 +#else
 +	menu->mInfo.region = SCGetLanguage();
 +#endif
- 	menu->mInfo.cursor         = 0;
- 	menu->mInfo.messageFlag    = 0;
- 	menu->mInfo.memSize        = 0x80000;
++	menu->mInfo.cursor      = 0;
++	menu->mInfo.messageFlag = 0;
++	menu->mInfo.memSize     = 0x80000;
++	menu->mInfo.frameDelta  = 1;
++	menu->mInfo.adjust.x    = 1;
++	menu->mInfo.adjust.y    = 1;
++	menu->mInfo.pAllocator  = &gWiiPadAllocator;
+ }
+ 
+ // TRUE once the menu's files are read and the menu is created
 diff --git a/src/game/wii/init.cpp b/src/game/wii/init.cpp
-index 7ff27fc2..73d16dd5 100644
+index a7c8bf7a..2d3f203c 100644
 --- a/src/game/wii/init.cpp
 +++ b/src/game/wii/init.cpp
 @@ -23,6 +23,7 @@ enum {
@@ -1909,6 +1973,19 @@ index 7ff27fc2..73d16dd5 100644
  	base->mPad.Init(1);
  	KPADSetPosParam(gWiiPads[0].mPort, 0.07f, 0.8f);
  	KPADSetHoriParam(gWiiPads[0].mPort, 0.05f, 1.0f);
+@@ -155,7 +166,12 @@ extern "C" void InitGameRenderState(CBase* base)
+ 		gGame.mGs.mCurTevStage->Apply();
+ 	if (gGame.mGs.mCurChannel)
+ 		gGame.mGs.mCurChannel->Apply();
++#if defined(WII_LANGUAGE_SYSTEM) || defined(WII_LANGUAGE)
++	// mod: only Japanese text has two-byte characters; a Latin-1 letter with an accent is one byte
++	gGame.mGs.mUseShiftJis = gGame.mLanguage == 0;
++#else
+ 	gGame.mGs.mUseShiftJis = TRUE;
++#endif
+ }
+ 
+ /**
 diff --git a/tools/project.py b/tools/project.py
 index d97a40d2..1040cec9 100644
 --- a/tools/project.py

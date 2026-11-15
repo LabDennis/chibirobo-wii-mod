@@ -90,7 +90,7 @@ index 6453d912..aa1c589d 100644
  
  [Credits and license notices](NOTICE)
 diff --git a/configure.py b/configure.py
-index a3e9356b..2b390476 100644
+index a3e9356b..146fec0b 100644
 --- a/configure.py
 +++ b/configure.py
 @@ -13,9 +13,11 @@
@@ -182,7 +182,7 @@ index a3e9356b..2b390476 100644
  config.sjiswrap_path = args.sjiswrap
  config.ninja_path = args.ninja
  config.progress = args.progress
-@@ -173,6 +228,30 @@ config.wibo_tag = "1.0.3"
+@@ -173,6 +228,43 @@ config.wibo_tag = "1.0.3"
  # Project
  config.config_path = Path("config") / config.version / "config.yml"
  config.check_sha_path = Path("config") / config.version / "build.sha1"
@@ -206,6 +206,19 @@ index a3e9356b..2b390476 100644
 +        if args.iso and wii_disc.name == "main.dol":
 +            parser.error("--iso needs a disc image (ISO, RVZ, ...) in orig/R24J01, not an extracted partition")
 +        if args.wii_locale:
++            # the languages come from the user's GameCube discs: English from the US one, or all five from the
++            # European one
++            gc_discs = {}
++            for version in ("GGTE01", "GGTP01"):
++                try:
++                    gc_discs[version] = disc_image(Path("orig") / version)
++                except ValueError:
++                    pass
++            if not gc_discs:
++                parser.error("--langpack needs a GameCube disc of the US or the European release in orig/GGTE01 or orig/GGTP01")
++            wii_languages = LANGUAGES if "GGTP01" in gc_discs else ("en",)
++            if args.wii_locale != "global" and args.wii_locale[:2] not in wii_languages:
++                parser.error(f"--langpack {args.wii_locale} needs the European GameCube disc in orig/GGTP01")
 +            write_localization(translations, args.wii_locale, config.out_path())
 +        write_mod(config.out_path(), base, ", ".join(features))
 +    except ValueError as error:
@@ -213,7 +226,7 @@ index a3e9356b..2b390476 100644
  config.asflags = [
      "-mgekko",
      "--strip-local-absolute",
-@@ -190,9 +269,6 @@ if args.map:
+@@ -190,9 +282,6 @@ if args.map:
      config.ldflags.append("-mapunused")
      # config.ldflags.append("-listclosure") # For Wii linkers
  
@@ -223,7 +236,7 @@ index a3e9356b..2b390476 100644
  # Optional numeric ID for decomp.me preset
  # Can be overridden in libraries or objects
  config.scratch_preset_id = None
-@@ -346,7 +422,10 @@ PAL = "GGTP01"
+@@ -346,7 +435,10 @@ PAL = "GGTP01"
  
  Matching = True                   # Object matches and should be linked
  NonMatching = False               # Object does not match and should not be linked
@@ -235,19 +248,21 @@ index a3e9356b..2b390476 100644
  
  
  # Object is only matching for specific versions
-@@ -1167,6 +1246,11 @@ if wii:
+@@ -1167,6 +1259,13 @@ if wii:
      ]
      if args.warn:
          wii_cflags.append(f"-W {args.warn}")
 +    if args.wii_locale:
 +        wii_cflags.extend([("-DWII_LANGUAGE_SYSTEM" if args.wii_locale == "global" else
 +                           f"-DWII_LANGUAGE={LANGUAGES.index(args.wii_locale[:2]) + 1}"), f"-i {config.out_path().as_posix()}/include"])
++        # the console's languages (SCGetLanguage) the build has files for; 0 is Japanese, the disc's own
++        wii_cflags.append(f"-DWII_LANGUAGES={1 | sum(1 << (LANGUAGES.index(lang) + 1) for lang in wii_languages)}")
 +    if args.wii_gamecube_pad:
 +        wii_cflags.append("-DWII_GAMECUBE_PAD")
      wii_cflags.append("-DDEBUG=1" if args.debug else "-DNDEBUG=1")
      config.libs = [
          {
-@@ -1188,7 +1272,7 @@ if wii:
+@@ -1188,7 +1287,7 @@ if wii:
                  # so (its twelve functions fall to about 80 % under GC/3.0a5 with -ipa file).
                  Object(Equivalent, "game/cmodule.cpp", mw_version="GC/3.0a5", extra_cflags=["-Cpp_exceptions on", "-ipa file"]),
                  Object(Equivalent, "game/ringmenupointer.cpp", mw_version="GC/3.0a5", extra_cflags=["-Cpp_exceptions on", "-ipa file"]),
@@ -256,7 +271,7 @@ index a3e9356b..2b390476 100644
                  Object(Equivalent, "game/roboeyeslens.cpp"),
                  # the THP player sits apart from the game's files (0x802C27B4 on) and takes the compiler
                  # without -ipa file: with it MixAudio falls to 99.88 %
-@@ -1196,7 +1280,7 @@ if wii:
+@@ -1196,7 +1295,7 @@ if wii:
                  Object(Matching, "game/THPSimple.cpp", mw_version="GC/3.0a5", extra_cflags=["-Cpp_exceptions on", "-inline noauto"]),
                  # ApplyStageClearColor copies its GXColor argument bytewise (0x8006F9xx); the
                  # same shape is a word copy under Wii/1.3
@@ -265,7 +280,7 @@ index a3e9356b..2b390476 100644
                         extra_cflags=["-Cpp_exceptions on", "-ipa file"]),
                  Object(Equivalent, "game/wii/atcmenuselection.cpp"),
                  # the whole file, 0x800AAD1C-0x800AC07C. GC/3.0a3 to 3.0a5 reproduce it; 3.0a5.2 puts the
-@@ -1207,20 +1291,20 @@ if wii:
+@@ -1207,20 +1306,20 @@ if wii:
                  # no auto-inlining of the small file functions: under -inline auto the
                  # compiler inlines OpenPath/GetResult/ReadAsync into their callers where
                  # retail keeps them as calls
@@ -289,7 +304,7 @@ index a3e9356b..2b390476 100644
                  Object(Equivalent, "game/wii/cpadact.cpp", mw_version="GC/3.0a5", extra_cflags=["-Cpp_exceptions on", "-ipa file"]),
                  Object(Matching, "game/wii/nandfile.cpp", extra_cflags=["-Cpp_exceptions on"]),
                  # retail has no call to StartWiiSaveJob (declared inline, inlined into its
-@@ -1455,10 +1539,111 @@ def append_treemap_step(config: ProjectConfig) -> None:
+@@ -1455,10 +1554,110 @@ def append_treemap_step(config: ProjectConfig) -> None:
          )
  
  
@@ -313,7 +328,7 @@ index a3e9356b..2b390476 100644
 +    quoted = f'"{path.as_posix()}"' if is_windows() else shlex.quote(path.as_posix())
 +    return quoted.replace("$", "$$")
 +
-+def append_language_data_step(config, codes):
++def append_language_data_step(config, codes, gc_discs):
 +    # tools/wii_lang_data.py builds every language once into build/wii-lang, for all mod variants; each
 +    # variant then takes the languages it can show.
 +    shared = config.build_dir / "wii-lang"
@@ -321,11 +336,10 @@ index a3e9356b..2b390476 100644
 +    report = files / "report.json"
 +    target = config.out_path() / "files/lang"
 +    dtk = wii_dtk(config)
-+    try:
-+        discs = [disc_image(Path("orig") / version) for version in ("R24J01", "GGTE01", "GGTP01")]
-+    except ValueError as error:
-+        parser.error(f"--langpack needs the Wii, US and PAL discs in orig/: {error}")
-+    inputs = [dtk, *discs]
++    wii_disc = disc_image(Path("orig/R24J01"))
++    gc_args = "".join(f" --{option} {arg(gc_discs[version])}" for option, version in (("us", "GGTE01"), ("pal", "GGTP01"))
++                      if version in gc_discs)
++    inputs = [dtk, wii_disc, *gc_discs.values()]
 +    # The producer also detects the Japanese GC reference beside the other discs.
 +    jp = Path("orig/GGTJ01_01")
 +    inputs.extend(sorted(p for p in jp.glob("*") if p.suffix.lower() in (".rvz", ".iso", ".gcm")))
@@ -333,8 +347,8 @@ index a3e9356b..2b390476 100644
 +    with open("build.ninja", "a", encoding="utf-8") as f:
 +        f.write(
 +            "\nrule wii_language_data\n"
-+            f"  command = $python tools/wii_lang_data.py --dtk {arg(dtk)} --wii {arg(discs[0])}"
-+            f" --us {arg(discs[1])} --pal {arg(discs[2])} --work {arg(shared / 'work')} --out {arg(files)}\n"
++            f"  command = $python tools/wii_lang_data.py --dtk {arg(dtk)} --wii {arg(wii_disc)}"
++            f"{gc_args} --work {arg(shared / 'work')} --out {arg(files)}\n"
 +            "  description = Extract Wii language data\n"
 +            f"build {esc(report.as_posix())}: wii_language_data tools/wii_lang_data.py | {dependencies}\n"
 +            "rule wii_stage_languages\n"
@@ -393,8 +407,8 @@ index a3e9356b..2b390476 100644
 +    if not wii_mod:
 +        append_treemap_step(config)
 +    if args.wii_locale:
-+        codes = ("ja", *LANGUAGES) if args.wii_locale == "global" else (args.wii_locale[:2],)
-+        append_language_data_step(config, codes)
++        codes = ("ja", *wii_languages) if args.wii_locale == "global" else (args.wii_locale[:2],)
++        append_language_data_step(config, codes, gc_discs)
 +    if args.wii_locale:
 +        append_banner_step(config, wii_disc, translations, args.wii_locale)
 +    if args.iso:
@@ -1829,7 +1843,7 @@ index a55e29fb..3adcee58 100644
  	menu->mInfo.messageFlag    = 0;
  	menu->mInfo.memSize        = 0x80000;
 diff --git a/src/game/wii/init.cpp b/src/game/wii/init.cpp
-index 7ff27fc2..81c8d04b 100644
+index 7ff27fc2..73d16dd5 100644
 --- a/src/game/wii/init.cpp
 +++ b/src/game/wii/init.cpp
 @@ -23,6 +23,7 @@ enum {
@@ -1840,14 +1854,15 @@ index 7ff27fc2..81c8d04b 100644
  u8 SCGetProgressiveMode();
  u32 VIGetScanMode();
  void VIInit();
-@@ -83,11 +84,20 @@ extern "C" void InitGameRuntime(CBase* base)
+@@ -83,11 +84,21 @@ extern "C" void InitGameRuntime(CBase* base)
  	DVDSetAutoFatalMessaging(TRUE);
  	DVDChangeDir("/cb/"); // the game's data root
  	VIInit();
 +	// the mod's language has to be known before the font and the resident text are set up
 +#if defined(WII_LANGUAGE_SYSTEM)
++	// a language the build has no files for plays in English
 +	u8 language     = SCGetLanguage();
-+	base->mLanguage = language <= 5 ? language : 1;
++	base->mLanguage = language <= 5 && (WII_LANGUAGES >> language & 1) ? language : 1;
 +#elif defined(WII_LANGUAGE)
 +	base->mLanguage = WII_LANGUAGE;
 +#endif
@@ -3502,10 +3517,10 @@ index 00000000..cad95d8e
 +    main()
 diff --git a/tools/wii_lang_data.py b/tools/wii_lang_data.py
 new file mode 100644
-index 00000000..c5e73c80
+index 00000000..e5361d48
 --- /dev/null
 +++ b/tools/wii_lang_data.py
-@@ -0,0 +1,2594 @@
+@@ -0,0 +1,2598 @@
 +#!/usr/bin/env python3
 +"""Build per-language override files for Chibi-Robo! Wii (R24J01) from GC US/PAL discs."""
 +
@@ -3525,14 +3540,18 @@ index 00000000..c5e73c80
 +
 +from PIL import Image, ImageDraw
 +
-+LANG_SPECS: Dict[str, Tuple[str, str, str]] = {
-+    # code: (disc_key, gc_bin_sub, gc_tpl_suffix)
-+    "en": ("us", "e", "us"),
-+    "de": ("pal", "g", "ge"),
-+    "fr": ("pal", "f", "fr"),
-+    "es": ("pal", "s", "sp"),
-+    "it": ("pal", "i", "it"),
-+}
++def language_specs(us: bool, pal: bool) -> Dict[str, Tuple[str, str, str]]:
++    """The languages the given GameCube discs provide, code: (disc_key, gc_bin_sub, gc_tpl_suffix). English comes
++    from the US disc if there is one, else from the European one, which also has the other four."""
++    specs: Dict[str, Tuple[str, str, str]] = {}
++    if us:
++        specs["en"] = ("us", "e", "us")
++    elif pal:
++        specs["en"] = ("pal", "e", "en")
++    if pal:
++        specs.update(de=("pal", "g", "ge"), fr=("pal", "f", "fr"), es=("pal", "s", "sp"), it=("pal", "i", "it"))
++    return specs
++
 +
 +# globals.bin data section text tables: (header_off, stride, ptr_offsets, name, count)
 +GLOBALS_TEXT_TABLES: Tuple[Tuple[int, int, Tuple[int, ...], str, int], ...] = (
@@ -5725,8 +5744,8 @@ index 00000000..c5e73c80
 +def _extract_discs(
 +    dtk: Path,
 +    wii_disc: Path,
-+    us_disc: Path,
-+    pal_disc: Path,
++    us_disc: Optional[Path],
++    pal_disc: Optional[Path],
 +    jp_disc: Optional[Path],
 +    work_dir: Path,
 +) -> Dict[str, Path]:
@@ -5750,13 +5769,15 @@ index 00000000..c5e73c80
 +        wii_dol.parent.mkdir(parents=True, exist_ok=True)
 +        _run_dtk(dtk, ["vfs", "cp", f"{wii_disc}:sys/main.dol", str(wii_dol)])
 +        paths["wii_dol"] = wii_dol
-+    _run_dtk(dtk, ["vfs", "cp", f"{us_disc}:files/qp.bin:bin/e", str(paths["us_bin_e"])])
-+    _run_dtk(dtk, ["vfs", "cp", f"{us_disc}:files/qp.bin:tpl", str(paths["us_tpl"])])
-+    for sub in ("e", "g", "f", "s", "i"):
-+        dst = paths["pal_bin"] / sub
-+        dst.mkdir(parents=True, exist_ok=True)
-+        _run_dtk(dtk, ["vfs", "cp", f"{pal_disc}:files/qp.bin:bin/{sub}", str(dst)])
-+    _run_dtk(dtk, ["vfs", "cp", f"{pal_disc}:files/qp.bin:tpl", str(paths["pal_tpl"])])
++    if us_disc is not None:
++        _run_dtk(dtk, ["vfs", "cp", f"{us_disc}:files/qp.bin:bin/e", str(paths["us_bin_e"])])
++        _run_dtk(dtk, ["vfs", "cp", f"{us_disc}:files/qp.bin:tpl", str(paths["us_tpl"])])
++    if pal_disc is not None:
++        for sub in ("e", "g", "f", "s", "i"):
++            dst = paths["pal_bin"] / sub
++            dst.mkdir(parents=True, exist_ok=True)
++            _run_dtk(dtk, ["vfs", "cp", f"{pal_disc}:files/qp.bin:bin/{sub}", str(dst)])
++        _run_dtk(dtk, ["vfs", "cp", f"{pal_disc}:files/qp.bin:tpl", str(paths["pal_tpl"])])
 +
 +    # Extract BRRES / DAT pairs for texture replacement
 +    for disc_key, base in (
@@ -5772,12 +5793,11 @@ index 00000000..c5e73c80
 +        wii_dst = paths["wii_brres"] / br_rel
 +        wii_dst.parent.mkdir(parents=True, exist_ok=True)
 +        _run_dtk(dtk, ["vfs", "cp", f"{wii_disc}:files/{br_rel}", str(wii_dst)])
-+        us_dst = paths["us_dat"] / dat_rel
-+        us_dst.parent.mkdir(parents=True, exist_ok=True)
-+        _run_dtk(dtk, ["vfs", "cp", f"{us_disc}:files/qp.bin:{dat_rel}", str(us_dst)])
-+        pal_dst = paths["pal_dat"] / dat_rel
-+        pal_dst.parent.mkdir(parents=True, exist_ok=True)
-+        _run_dtk(dtk, ["vfs", "cp", f"{pal_disc}:files/qp.bin:{dat_rel}", str(pal_dst)])
++        for disc, key in ((us_disc, "us_dat"), (pal_disc, "pal_dat")):
++            if disc is not None:
++                dst = paths[key] / dat_rel
++                dst.parent.mkdir(parents=True, exist_ok=True)
++                _run_dtk(dtk, ["vfs", "cp", f"{disc}:files/qp.bin:{dat_rel}", str(dst)])
 +
 +    if jp_disc is not None:
 +        jp_bin = work_dir / "jp" / "bin"
@@ -5825,25 +5845,26 @@ index 00000000..c5e73c80
 +def build_language_data(
 +    dtk: Path,
 +    wii_disc: Path,
-+    us_disc: Path,
-+    pal_disc: Path,
++    us_disc: Optional[Path],
++    pal_disc: Optional[Path],
 +    work_dir: Path,
 +    out_dir: Path,
 +    jp_disc: Optional[Path] = None,
 +    depfile: Optional[Path] = None,
 +) -> Dict[str, object]:
++    if us_disc is None and pal_disc is None:
++        raise ValueError("Give the GameCube disc of the US release (--us), of the European one (--pal), or both")
 +    for label, p in (("dtk", dtk), ("wii", wii_disc), ("us", us_disc), ("pal", pal_disc)):
-+        if not p.exists():
++        if p is not None and not p.exists():
 +            raise FileNotFoundError(f"Missing --{label} path: {p}")
 +    if jp_disc is not None and not jp_disc.exists():
 +        raise FileNotFoundError(f"Missing --jp path: {jp_disc}")
 +
 +    if not _dtk_exists(dtk, f"{wii_disc}:files/bin"):
 +        raise RuntimeError(f"Invalid Wii disc (files/bin missing): {wii_disc}")
-+    if not _dtk_exists(dtk, f"{us_disc}:files/qp.bin"):
-+        raise RuntimeError(f"Invalid US GC disc (files/qp.bin missing): {us_disc}")
-+    if not _dtk_exists(dtk, f"{pal_disc}:files/qp.bin"):
-+        raise RuntimeError(f"Invalid PAL GC disc (files/qp.bin missing): {pal_disc}")
++    for label, p in (("US", us_disc), ("PAL", pal_disc)):
++        if p is not None and not _dtk_exists(dtk, f"{p}:files/qp.bin"):
++            raise RuntimeError(f"Invalid {label} GC disc (files/qp.bin missing): {p}")
 +
 +    extracted = _extract_discs(dtk, wii_disc, us_disc, pal_disc, jp_disc, work_dir)
 +    out_dir.mkdir(parents=True, exist_ok=True)
@@ -5883,7 +5904,7 @@ index 00000000..c5e73c80
 +    }
 +
 +    written_files: List[Path] = []
-+    for code, (disc_key, bin_sub, tpl_suffix) in LANG_SPECS.items():
++    for code, (disc_key, bin_sub, tpl_suffix) in language_specs(us_disc is not None, pal_disc is not None).items():
 +        lang_out = out_dir / "lang" / code
 +        if lang_out.exists():
 +            shutil.rmtree(lang_out)
@@ -6061,9 +6082,7 @@ index 00000000..c5e73c80
 +    report_path = out_dir / "report.json"
 +    report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
 +    if depfile is not None:
-+        deps = [wii_disc, us_disc, pal_disc]
-+        if jp_disc is not None:
-+            deps.append(jp_disc)
++        deps = [d for d in (wii_disc, us_disc, pal_disc, jp_disc) if d is not None]
 +        _write_depfile(depfile, [report_path, *written_files], deps)
 +    return report
 +
@@ -6072,8 +6091,8 @@ index 00000000..c5e73c80
 +    parser = argparse.ArgumentParser(description="Generate Wii multi-language override files from GC discs.")
 +    parser.add_argument("--dtk", required=True, type=Path)
 +    parser.add_argument("--wii", required=True, type=Path)
-+    parser.add_argument("--us", required=True, type=Path)
-+    parser.add_argument("--pal", required=True, type=Path)
++    parser.add_argument("--us", default=None, type=Path, help="GameCube disc of the US release")
++    parser.add_argument("--pal", default=None, type=Path, help="GameCube disc of the European release")
 +    parser.add_argument("--jp", default=None, type=Path, help="Optional GC JP disc (auto-detected if sibling GGTJ01_01 exists)")
 +    parser.add_argument("--work", required=True, type=Path)
 +    parser.add_argument("--out", required=True, type=Path)

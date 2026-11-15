@@ -2,8 +2,10 @@
 
 There are no options: one build with everything the mod has (all languages, chosen by the console's language;
 the controls picked by the first A press), written as a disc image. Put your own disc images into
-decomp/orig/<ID>/ first: R24J01, and GGTE01, GGTP01 and GGTJ01_01, which the languages are made from. The patched
-copy of the decomp is a git worktree of the submodule's commit at build/decomp.
+decomp/orig/<ID>/ first: the Wii disc in R24J01, and a GameCube disc of the US release (GGTE01, gives English) or of
+the European one (GGTP01, gives English, German, French, Spanish and Italian), or both. The Japanese GameCube disc
+(GGTJ01_01) is optional and lets more textures with writing be matched. The patched copy of the decomp is a git
+worktree of the submodule's commit at build/decomp.
 """
 
 import hashlib

@@ -1731,14 +1731,16 @@ index 9e4fa84a..f44e12a2 100644
  	if (result < 0) {
  		if (mInArchive) {
 diff --git a/src/game/wii/cpad.cpp b/src/game/wii/cpad.cpp
-index 578669ef..7e99b4ee 100644
+index 578669ef..1ac7ea31 100644
 --- a/src/game/wii/cpad.cpp
 +++ b/src/game/wii/cpad.cpp
-@@ -59,6 +59,13 @@ static BOOL (CPadOne::*sGameCubePadCheck)() const = &CPadOne::IsGameCubePadActiv
+@@ -59,6 +59,15 @@ static BOOL (CPadOne::*sGameCubePadCheck)() const = &CPadOne::IsGameCubePadActiv
  
  enum { RumbleEnabled = 1, RumbleRunning = 2, RumblePaused = 4 };
  
 +#if defined(WII_GAMECUBE_PAD)
++#include "game/wii/cgame.h"
++
 +// mod: the first A press picks the controls. GameCube A plays with the GameCube controller alone, and the game no
 +// longer asks for the Wii Remote; Wii Remote A plays as retail does, pointer, motion and speaker included.
 +enum { ControlsUndecided, ControlsGameCube, ControlsRemote };
@@ -1748,7 +1750,7 @@ index 578669ef..7e99b4ee 100644
  // Hardware masks returned by KPAD for the Wii Remote and its extensions.
  enum {
  	WPAD_BUTTON_LEFT  = 0x0001,
-@@ -241,6 +248,16 @@ void CPadOne::Update(const PADStatus* status, s32 frames)
+@@ -241,6 +250,16 @@ void CPadOne::Update(const PADStatus* status, s32 frames)
  	}
  	mProbeResult = probe;
  	mDeviceType  = device;
@@ -1765,7 +1767,7 @@ index 578669ef..7e99b4ee 100644
  
  	u64 buttons = 0;
  	u32 claimed = 0;
-@@ -916,6 +933,11 @@ PADStatus gWiiGameCubePads[4];
+@@ -916,6 +935,11 @@ PADStatus gWiiGameCubePads[4];
  
  void CPadEx::Init(u8 inputMask)
  {
@@ -1777,7 +1779,7 @@ index 578669ef..7e99b4ee 100644
  	mInputMask = inputMask;
  	if (mInputMask & InputGameCube) {
  		PADInit();
-@@ -968,6 +990,24 @@ void CPadEx::Update(s32 frames)
+@@ -968,6 +992,30 @@ void CPadEx::Update(s32 frames)
  	for (u8 port = 0; port < 4; ++port) {
  		gWiiPads[port].Update(&gWiiGameCubePads[port], frames);
  	}
@@ -1797,6 +1799,12 @@ index 578669ef..7e99b4ee 100644
 +				gWiiPads[port].mInputMask = inputMask;
 +			}
 +		}
++	}
++	// mod: with GameCube controls the menus are worked with the stick, not the pointer. That is the game's own
++	// setting (bit 0 pointer, bit 1 stick; the pointer alone at the start), which its options menu and a loaded
++	// save set back, so it is put right every frame
++	if (sControls == ControlsGameCube) {
++		gGame.mMenuControls = (gGame.mMenuControls | 2) & ~1;
 +	}
 +#endif
  }

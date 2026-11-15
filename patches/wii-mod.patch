@@ -1,5 +1,5 @@
 diff --git a/README.md b/README.md
-index 6453d912ac540784cfa5d439513dba0694e4265f..aa1c589d0164f95b030c82f1459364d060ff58be 100644
+index 6453d912..aa1c589d 100644
 --- a/README.md
 +++ b/README.md
 @@ -97,6 +97,85 @@ ninja
@@ -90,7 +90,7 @@ index 6453d912ac540784cfa5d439513dba0694e4265f..aa1c589d0164f95b030c82f1459364d0
  
  [Credits and license notices](NOTICE)
 diff --git a/configure.py b/configure.py
-index 3d114b2d0f6263f03860353fa5cdc52596b1869d..56ccdd5e8ea85dffcdc48da5df01c5e4182714d4 100644
+index a3e9356b..8a17b119 100644
 --- a/configure.py
 +++ b/configure.py
 @@ -13,9 +13,11 @@
@@ -235,22 +235,24 @@ index 3d114b2d0f6263f03860353fa5cdc52596b1869d..56ccdd5e8ea85dffcdc48da5df01c5e4
      wii_cflags.append("-DDEBUG=1" if args.debug else "-DNDEBUG=1")
      config.libs = [
          {
-@@ -1181,11 +1262,11 @@ if wii:
-                 Object(Equivalent, "game/roboeyeslens.cpp"),
-                 Object(Equivalent, "game/stage_data.cpp", extra_cflags=["-Cpp_exceptions on"]),
-                 Object(Equivalent, "game/wii/atcmenuselection.cpp"),
--                Object(NonMatching, "game/wii/homemenu.cpp", extra_cflags=["-Cpp_exceptions on"]),
-+                Object(bool(args.wii_locale), "game/wii/homemenu.cpp", extra_cflags=["-Cpp_exceptions on"]),
-                 # its switches are binary-search trees, which only the GC compilers emit, and none of its
-                 # small functions is inlined into the callers that follow them
--                Object(NonMatching, "game/wii/cfile.cpp", mw_version="GC/3.0a5.2", extra_cflags=["-Cpp_exceptions on", "-inline noauto"]),
--                Object(NonMatching, "game/wii/gamemain.cpp", extra_cflags=["-Cpp_exceptions on"]),
-+                Object(bool(args.wii_locale), "game/wii/cfile.cpp", mw_version="GC/3.0a5.2", extra_cflags=["-Cpp_exceptions on", "-inline noauto"]),
-+                Object(bool(args.wii_locale), "game/wii/gamemain.cpp", extra_cflags=["-Cpp_exceptions on"]),
-                 Object(Equivalent, "game/wii/cpad.cpp", extra_cflags=["-Cpp_exceptions on"]),
-                 Object(Equivalent, "game/wii/cpadact.cpp", extra_cflags=["-Cpp_exceptions on"]),
-                 Object(Matching, "game/wii/nandfile.cpp", extra_cflags=["-Cpp_exceptions on"]),
-@@ -1332,10 +1413,111 @@ def append_treemap_step(config: ProjectConfig) -> None:
+@@ -1207,14 +1288,14 @@ if wii:
+                 # no auto-inlining of the small file functions: under -inline auto the
+                 # compiler inlines OpenPath/GetResult/ReadAsync into their callers where
+                 # retail keeps them as calls
+-                Object(NonMatching, "game/wii/cfile.cpp", mw_version="GC/3.0a5", extra_cflags=["-Cpp_exceptions on", "-ipa file", "-inline noauto"]),
++                Object(bool(args.wii_locale), "game/wii/cfile.cpp", mw_version="GC/3.0a5", extra_cflags=["-Cpp_exceptions on", "-ipa file", "-inline noauto"]),
+                 # init.cpp (the name is in its OSPanic call): InitTwoLightSet and InitFourLightSet
+                 # copy their vectors through the registers retail uses under GC/3.0a3.2 to 3.0a5
+                 # and through others under 3.0a5.2, and every Wii build is far off. -ipa file: the
+                 # weak functions a function leaves behind (CCamera::CalcAngle, CalcDistance;
+                 # CLight::SetPosition, vf30) follow it in the order of their calls, as in retail
+                 # 0x8003607C and 0x80036254; without the flag they come out in the reverse order
+-                Object(NonMatching, "game/wii/init.cpp", mw_version="GC/3.0a5", extra_cflags=["-Cpp_exceptions on", "-ipa file"]),
++                Object(bool(args.wii_locale), "game/wii/init.cpp", mw_version="GC/3.0a5", extra_cflags=["-Cpp_exceptions on", "-ipa file"]),
+                 # no auto-inlining of the small pad functions: under -inline auto the
+                 # compiler inlines Collect*/Init into their callers where retail keeps
+                 # them as calls; IsGameCubePadActive is inline-declared and still inlined
+@@ -1455,10 +1536,111 @@ def append_treemap_step(config: ProjectConfig) -> None:
          )
  
  
@@ -354,7 +356,7 @@ index 3d114b2d0f6263f03860353fa5cdc52596b1869d..56ccdd5e8ea85dffcdc48da5df01c5e4
 +    if not wii_mod:
 +        append_treemap_step(config)
 +    if args.wii_locale:
-+        codes = LANGUAGES if args.wii_locale == "global" else (args.wii_locale[:2],)
++        codes = ("ja", *LANGUAGES) if args.wii_locale == "global" else (args.wii_locale[:2],)
 +        append_language_data_step(config, codes)
 +    if args.wii_locale:
 +        append_banner_step(config, wii_disc, translations, args.wii_locale)
@@ -365,7 +367,7 @@ index 3d114b2d0f6263f03860353fa5cdc52596b1869d..56ccdd5e8ea85dffcdc48da5df01c5e4
      calculate_progress(config)
 diff --git a/mods/wii-localization/interface.json b/mods/wii-localization/interface.json
 new file mode 100644
-index 0000000000000000000000000000000000000000..31fe7c9dc3e2e086a88b3db807663c2ae6787bba
+index 00000000..31fe7c9d
 --- /dev/null
 +++ b/mods/wii-localization/interface.json
 @@ -0,0 +1,26 @@
@@ -395,9 +397,41 @@ index 0000000000000000000000000000000000000000..31fe7c9dc3e2e086a88b3db807663c2a
 +    "Telecomando Wii scollegato.", "Collega il Nunchuk al telecomando Wii.", "Punta il telecomando Wii verso lo schermo."
 +  ]
 +}
+diff --git a/mods/wii-localization/press_a.json b/mods/wii-localization/press_a.json
+new file mode 100644
+index 00000000..d2d595df
+--- /dev/null
++++ b/mods/wii-localization/press_a.json
+@@ -0,0 +1,26 @@
++{
++  "ja": [
++    "Press A on your controller.",
++    "You play with the controller you press it on."
++  ],
++  "en": [
++    "Press A on your controller.",
++    "You play with the controller you press it on."
++  ],
++  "de": [
++    "Drücke A auf deinem Controller.",
++    "Du spielst mit dem Controller, auf dem du drückst."
++  ],
++  "fr": [
++    "Appuie sur A sur ta manette.",
++    "Tu joues avec la manette sur laquelle tu appuies."
++  ],
++  "es": [
++    "Pulsa A en tu mando.",
++    "Juegas con el mando en el que lo pulses."
++  ],
++  "it": [
++    "Premi A sul tuo controller.",
++    "Giochi con il controller su cui lo premi."
++  ]
++}
 diff --git a/mods/wii-localization/text_map.json b/mods/wii-localization/text_map.json
 new file mode 100644
-index 0000000000000000000000000000000000000000..5a9af079ee50bef26de6462cd2a0125c57d778dd
+index 00000000..5a9af079
 --- /dev/null
 +++ b/mods/wii-localization/text_map.json
 @@ -0,0 +1,379 @@
@@ -782,7 +816,7 @@ index 0000000000000000000000000000000000000000..5a9af079ee50bef26de6462cd2a0125c
 +}
 diff --git a/mods/wii-localization/wii_text.json b/mods/wii-localization/wii_text.json
 new file mode 100644
-index 0000000000000000000000000000000000000000..4486836e354df7d4c8f0c9c3267d5c6da9d2ff35
+index 00000000..4486836e
 --- /dev/null
 +++ b/mods/wii-localization/wii_text.json
 @@ -0,0 +1,684 @@
@@ -1471,7 +1505,7 @@ index 0000000000000000000000000000000000000000..4486836e354df7d4c8f0c9c3267d5c6d
 +  }
 +]
 diff --git a/src/game/globalresources.cpp b/src/game/globalresources.cpp
-index a54a3ba9a0c0bc3ebdaa7c3523f55f1970263f24..d6fdd9af3a54692ac9783400733cd732d560a5cc 100644
+index 0bdb4d14..1460cccd 100644
 --- a/src/game/globalresources.cpp
 +++ b/src/game/globalresources.cpp
 @@ -9,6 +9,47 @@
@@ -1562,7 +1596,7 @@ index a54a3ba9a0c0bc3ebdaa7c3523f55f1970263f24..d6fdd9af3a54692ac9783400733cd732
  	return gJapaneseInterfaceText[index];
  #else
  	return gInterfaceTextByLanguage[gGame.mLanguage][index];
-@@ -508,8 +571,12 @@ extern "C" BOOL IsGlobalDataLoaded()
+@@ -510,8 +573,12 @@ extern "C" BOOL IsGlobalDataLoaded()
   */
  extern "C" BOOL LoadGlobalResourceData()
  {
@@ -1576,10 +1610,10 @@ index a54a3ba9a0c0bc3ebdaa7c3523f55f1970263f24..d6fdd9af3a54692ac9783400733cd732
  	char path[0x40];
  	sprintf(path, "bin%s/%s", gResourceDirectorySuffixByLanguage[gGame.mLanguage], gGlobalResourceFileName);
 diff --git a/src/game/stage_data.cpp b/src/game/stage_data.cpp
-index 9904833897c631d03e6f8f03a34872ec1d8ae169..5a306f104295bf668d0ae75b27e30f19fed9e2ed 100644
+index 999d42e3..3871a67a 100644
 --- a/src/game/stage_data.cpp
 +++ b/src/game/stage_data.cpp
-@@ -2684,7 +2684,7 @@ extern "C" BOOL AdvanceStageLoad(Stage* stage, s32 index)
+@@ -2682,7 +2682,7 @@ extern "C" BOOL AdvanceStageLoad(Stage* stage, s32 index)
  {
  	switch (stage->mState) {
  	case 0: {
@@ -1589,7 +1623,7 @@ index 9904833897c631d03e6f8f03a34872ec1d8ae169..5a306f104295bf668d0ae75b27e30f19
  #else
  		strcpy(stage->mDataPath,
 diff --git a/src/game/wii/cfile.cpp b/src/game/wii/cfile.cpp
-index 686f5e3fe22fbb6639199b67e32427debb63f7f2..9ad8b3bda2e4eb7e36591c0315d376c488e992f9 100644
+index 9e4fa84a..f44e12a2 100644
 --- a/src/game/wii/cfile.cpp
 +++ b/src/game/wii/cfile.cpp
 @@ -2,6 +2,10 @@
@@ -1603,7 +1637,7 @@ index 686f5e3fe22fbb6639199b67e32427debb63f7f2..9ad8b3bda2e4eb7e36591c0315d376c4
  
  // The Wii CFile keeps two flags where the GameCube one keeps the archive pointer: the archive is
  // always the current one, and a buffer handed in by the caller is never freed.
-@@ -119,9 +123,34 @@ BOOL CFile::IsInArchive(const char* path)
+@@ -119,9 +123,32 @@ BOOL CFile::IsInArchive(const char* path)
  	return gCurrentFileArchive != NULL ? ARCConvertPathToEntrynum(&gCurrentFileArchive->mHandle, path) >= 0 : FALSE;
  }
  
@@ -1611,9 +1645,7 @@ index 686f5e3fe22fbb6639199b67e32427debb63f7f2..9ad8b3bda2e4eb7e36591c0315d376c4
 +// the selected language's copy of a disc file, /lang/<code>/<path>
 +static s32 LocalizedDiscEntry(const char* path, char* localized, size_t capacity)
 +{
-+	static const char* const codes[] = { "", "en", "de", "fr", "es", "it" };
-+	if (!gGame.mLanguage)
-+		return -1;
++	static const char* const codes[] = { "ja", "en", "de", "fr", "es", "it" };
 +	if (*path == '/')
 +		++path;
 +	if (strlen(path) + sizeof("/lang/en/") > capacity)
@@ -1638,7 +1670,7 @@ index 686f5e3fe22fbb6639199b67e32427debb63f7f2..9ad8b3bda2e4eb7e36591c0315d376c4
  	if (gCurrentFileArchive != NULL) {
  		entrynum = ARCConvertPathToEntrynum(&gCurrentFileArchive->mHandle, path);
  	}
-@@ -133,8 +162,22 @@ s32 CFile::ConvertPathToEntrynum(const char* path)
+@@ -133,8 +160,22 @@ s32 CFile::ConvertPathToEntrynum(const char* path)
  
  s32 CFile::OpenPath(const char* path)
  {
@@ -1662,12 +1694,12 @@ index 686f5e3fe22fbb6639199b67e32427debb63f7f2..9ad8b3bda2e4eb7e36591c0315d376c4
  	if (result < 0) {
  		if (mInArchive) {
 diff --git a/src/game/wii/cpad.cpp b/src/game/wii/cpad.cpp
-index eadf2f3a527a6ffc2f9d58bb2f1ab22ea33e5319..90e7fe3bcd9dfb83b5fbdeca9abda7545e0d0e7f 100644
+index 578669ef..7e99b4ee 100644
 --- a/src/game/wii/cpad.cpp
 +++ b/src/game/wii/cpad.cpp
-@@ -60,6 +60,13 @@ enum {
- 	RumblePaused   = 4
- };
+@@ -59,6 +59,13 @@ static BOOL (CPadOne::*sGameCubePadCheck)() const = &CPadOne::IsGameCubePadActiv
+ 
+ enum { RumbleEnabled = 1, RumbleRunning = 2, RumblePaused = 4 };
  
 +#if defined(WII_GAMECUBE_PAD)
 +// mod: the first A press picks the controls. GameCube A plays with the GameCube controller alone, and the game no
@@ -1679,7 +1711,7 @@ index eadf2f3a527a6ffc2f9d58bb2f1ab22ea33e5319..90e7fe3bcd9dfb83b5fbdeca9abda754
  // Hardware masks returned by KPAD for the Wii Remote and its extensions.
  enum {
  	WPAD_BUTTON_LEFT  = 0x0001,
-@@ -209,6 +216,16 @@ void CPadOne::Update(const PADStatus* status, s32 frames)
+@@ -241,6 +248,16 @@ void CPadOne::Update(const PADStatus* status, s32 frames)
  	}
  	mProbeResult = probe;
  	mDeviceType  = device;
@@ -1694,9 +1726,9 @@ index eadf2f3a527a6ffc2f9d58bb2f1ab22ea33e5319..90e7fe3bcd9dfb83b5fbdeca9abda754
 +	}
 +#endif
  
- 	u64 buttons   = 0;
- 	bool nunchukX = false, nunchukY = false;
-@@ -810,6 +827,11 @@ PADStatus gWiiGameCubePads[4];
+ 	u64 buttons = 0;
+ 	u32 claimed = 0;
+@@ -916,6 +933,11 @@ PADStatus gWiiGameCubePads[4];
  
  void CPadEx::Init(u8 inputMask)
  {
@@ -1708,7 +1740,7 @@ index eadf2f3a527a6ffc2f9d58bb2f1ab22ea33e5319..90e7fe3bcd9dfb83b5fbdeca9abda754
  	mInputMask = inputMask;
  	if (mInputMask & InputGameCube) {
  		PADInit();
-@@ -863,6 +885,24 @@ void CPadEx::Update(s32 frames)
+@@ -968,6 +990,24 @@ void CPadEx::Update(s32 frames)
  	for (u8 port = 0; port < 4; ++port) {
  		gWiiPads[port].Update(&gWiiGameCubePads[port], frames);
  	}
@@ -1733,63 +1765,59 @@ index eadf2f3a527a6ffc2f9d58bb2f1ab22ea33e5319..90e7fe3bcd9dfb83b5fbdeca9abda754
  }
  
  void CPadEx::SetMainStickRange(f32 inner, f32 outer)
-diff --git a/src/game/wii/gamemain.cpp b/src/game/wii/gamemain.cpp
-index 9c6ad2c8dd22f33b5c6c2289006a91d0213203f0..1ea9860e61cd79619ab656f04d8943b76d63d7ed 100644
---- a/src/game/wii/gamemain.cpp
-+++ b/src/game/wii/gamemain.cpp
-@@ -32,11 +32,20 @@ void CBase::Start()
- 	DVDSetAutoFatalMessaging(TRUE);
- 	DVDChangeDir("/cb/");
- 	fn_80199AE4();
-+	// the mod's language has to be known before the font and the resident text are set up
-+#if defined(WII_LANGUAGE_SYSTEM)
-+	u8 language = SCGetLanguage();
-+	mLanguage   = language <= 5 ? language : 1;
-+#elif defined(WII_LANGUAGE)
-+	mLanguage = WII_LANGUAGE;
-+#endif
- 	fn_800355F4(this);
- 	fn_8003568C(this);
- 	fn_80035AD0(this);
- 	fn_802AAF98(gGame._0000 + 8);
-+#if !defined(WII_LANGUAGE) && !defined(WII_LANGUAGE_SYSTEM)
- 	mLanguage = 0;
-+#endif
- 	mPad.Init(1);
- 	KPADSetPosParam(gWiiPads[0].mPort, 0.07f, 0.8f);
- 	KPADSetHoriParam(gWiiPads[0].mPort, 0.05f, 1.0f);
 diff --git a/src/game/wii/homemenu.cpp b/src/game/wii/homemenu.cpp
-index a8c828a862f3872a8f4df2ffd69319b93c5ae96b..e1a85f4ebe233bce3778841da2f6d1eec76d6e9a 100644
+index a55e29fb..3adcee58 100644
 --- a/src/game/wii/homemenu.cpp
 +++ b/src/game/wii/homemenu.cpp
-@@ -44,12 +44,17 @@ extern "C" void InitWiiHomeMenu(WiiHomeMenu* menu)
- 	menu->layout        = 0;
- 	menu->message       = 0;
- 	menu->configuration = 0;
--	menu->language      = SCGetLanguage();
--	menu->flags         = 0;
--	menu->sound         = 0;
--	menu->heapSize      = 0x80000;
--	menu->scaleX        = 1;
--	menu->scaleY        = 1;
--	menu->speed         = 1;
--	menu->allocator     = &gWiiPadAllocator;
+@@ -171,7 +171,12 @@ extern "C" void InitWiiHomeMenu(WiiHomeMenu* menu)
+ 	menu->mInfo.mem            = NULL;
+ 	menu->mInfo.sound_callback = NULL;
+ 	menu->mInfo.backFlag       = FALSE;
+-	menu->mInfo.region         = SCGetLanguage();
 +#if defined(WII_LANGUAGE) || defined(WII_LANGUAGE_SYSTEM)
-+	// the archive loader indexes its homeBtn table with this, so the mod's language picks the files
-+	menu->language = gGame.mLanguage;
++	// the mod: the menu's messages in the language its files are loaded for
++	menu->mInfo.region = gGame.mLanguage;
 +#else
-+	menu->language = SCGetLanguage();
++	menu->mInfo.region = SCGetLanguage();
 +#endif
-+	menu->flags     = 0;
-+	menu->sound     = 0;
-+	menu->heapSize  = 0x80000;
-+	menu->scaleX    = 1;
-+	menu->scaleY    = 1;
-+	menu->speed     = 1;
-+	menu->allocator = &gWiiPadAllocator;
- }
+ 	menu->mInfo.cursor         = 0;
+ 	menu->mInfo.messageFlag    = 0;
+ 	menu->mInfo.memSize        = 0x80000;
+diff --git a/src/game/wii/init.cpp b/src/game/wii/init.cpp
+index 7ff27fc2..81c8d04b 100644
+--- a/src/game/wii/init.cpp
++++ b/src/game/wii/init.cpp
+@@ -23,6 +23,7 @@ enum {
+ 	SC_ASPECT_RATIO_16x9,
+ };
+ u8 SCGetAspectRatio();
++u8 SCGetLanguage();
+ u8 SCGetProgressiveMode();
+ u32 VIGetScanMode();
+ void VIInit();
+@@ -83,11 +84,20 @@ extern "C" void InitGameRuntime(CBase* base)
+ 	DVDSetAutoFatalMessaging(TRUE);
+ 	DVDChangeDir("/cb/"); // the game's data root
+ 	VIInit();
++	// the mod's language has to be known before the font and the resident text are set up
++#if defined(WII_LANGUAGE_SYSTEM)
++	u8 language     = SCGetLanguage();
++	base->mLanguage = language <= 5 ? language : 1;
++#elif defined(WII_LANGUAGE)
++	base->mLanguage = WII_LANGUAGE;
++#endif
+ 	InitGameHeaps(base);
+ 	InitGameRenderState(base);
+ 	InitGameVideo(base);
+ 	gGame.mGs.InitFrameBuffers();
++#if !defined(WII_LANGUAGE) && !defined(WII_LANGUAGE_SYSTEM)
+ 	base->mLanguage = 0;
++#endif
+ 	base->mPad.Init(1);
+ 	KPADSetPosParam(gWiiPads[0].mPort, 0.07f, 0.8f);
+ 	KPADSetHoriParam(gWiiPads[0].mPort, 0.05f, 1.0f);
 diff --git a/tools/project.py b/tools/project.py
-index d97a40d25a30c7046b9f718b7e65472c96bdef1d..1040cec9d631a5bb98ecdc4e7495df1ce9c5146f 100644
+index d97a40d2..1040cec9 100644
 --- a/tools/project.py
 +++ b/tools/project.py
 @@ -158,6 +158,7 @@ class ProjectConfig:
@@ -1905,7 +1933,7 @@ index d97a40d25a30c7046b9f718b7e65472c96bdef1d..1040cec9d631a5bb98ecdc4e7495df1c
      ###
 diff --git a/tools/test_wii_iso.py b/tools/test_wii_iso.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..1f3aeafa79c63aa9df4b8eb51c20fcde3808a5d6
+index 00000000..1f3aeafa
 --- /dev/null
 +++ b/tools/test_wii_iso.py
 @@ -0,0 +1,121 @@
@@ -2032,10 +2060,10 @@ index 0000000000000000000000000000000000000000..1f3aeafa79c63aa9df4b8eb51c20fcde
 +    unittest.main()
 diff --git a/tools/test_wii_lang_data.py b/tools/test_wii_lang_data.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..f025ba0d622b5817379fe6c5702eebe3d60f6d91
+index 00000000..192730f4
 --- /dev/null
 +++ b/tools/test_wii_lang_data.py
-@@ -0,0 +1,375 @@
+@@ -0,0 +1,763 @@
 +#!/usr/bin/env python3
 +"""Unit tests for tools/wii_lang_data.py using synthetic scripts and files."""
 +
@@ -2049,12 +2077,17 @@ index 0000000000000000000000000000000000000000..f025ba0d622b5817379fe6c5702eebe3
 +    _decode_tpl_pixels,
 +    _encode_tpl_pixels,
 +    align_by_structure,
++    convert_tpl_textures_by_jp,
 +    convert_tpl_to_wii_format,
 +    extract_script_entries,
++    load_dol_single_byte_font,
 +    map_globals_slots,
++    parse_brres_textures,
 +    parse_script_from,
 +    parse_tpl_header,
 +    parse_tpl_textures,
++    press_a_tpl,
++    replace_brres_textures,
 +    translate_globals_bin,
 +    translate_stage_bin,
 +)
@@ -2408,12 +2441,395 @@ index 0000000000000000000000000000000000000000..f025ba0d622b5817379fe6c5702eebe3
 +        self.assertIsNone(res_dim)
 +        self.assertEqual(info_dim["reason"], "dimension_mismatch")
 +
++    def test_brres_tex0_replace_reencode_and_mipmaps(self) -> None:
++        # Build minimal synthetic BRRES with 2 TEX0 entries (tex_a: CMPR 8x8 mip=1, tex_b: I8 8x8 mip=2)
++        def make_solid_rgba(w: int, h: int, rgba_px: bytes) -> bytes:
++            return rgba_px * (w * h)
++
++        def build_res_dic(off_base: int, items: list[tuple[str, int]]) -> tuple[bytes, bytes]:
++            # ResDic header (8B) + (N+1)*16B entries, followed by null-terminated names
++            n = len(items)
++            dic_size = 8 + (n + 1) * 16
++            dic = bytearray(dic_size)
++            names = bytearray()
++            struct.pack_into(">II", dic, 0, dic_size, n)
++            struct.pack_into(">HHHHII", dic, 8, 0xFFFF, 0, 0, 0, 0, 0)
++            for idx, (name, abs_target) in enumerate(items, start=1):
++                name_off = dic_size + len(names)
++                names.extend(name.encode("ascii") + b"\x00")
++                struct.pack_into(">HHHHII", dic, 8 + idx * 16, 0, 0, 0, 0, name_off, abs_target - off_base)
++            return bytes(dic), bytes(names)
++
++        # Layout: bres(16) + root_hdr(8) + root_dic(40) + folder_dic(56) + names + tex0_a + tex0_b
++        tex_a_data = _encode_tpl_pixels(make_solid_rgba(8, 8, b"\x00\xff\x00\xff"), 8, 8, 14)
++        tex_b_m0 = _encode_tpl_pixels(make_solid_rgba(8, 8, b"\x40\x40\x40\xff"), 8, 8, 1)
++        tex_b_m1 = _encode_tpl_pixels(make_solid_rgba(4, 4, b"\x40\x40\x40\xff"), 4, 4, 1)
++        tex_b_data = tex_b_m0 + tex_b_m1
++
++        root_off = 16
++        root_dic_off = root_off + 8
++        folder_dic_off = root_dic_off + 40 + 16  # 1 entry + name "Textures(NW4R)\0" (15B -> 16B)
++        tex0_a_off = folder_dic_off + 56 + 16    # 2 entries + names "tex_a\0tex_b\0" (12B -> 16B)
++        tex0_a_hdr_size = 64
++        tex0_b_off = tex0_a_off + tex0_a_hdr_size + len(tex_a_data)
++        tex0_b_hdr_size = 64
++        total_size = tex0_b_off + tex0_b_hdr_size + len(tex_b_data)
++
++        out = bytearray(total_size)
++        struct.pack_into(">4sHHIHH", out, 0, b"bres", 0xFEFF, 0, total_size, 16, 2)
++        struct.pack_into(">4sI", out, root_off, b"root", folder_dic_off - root_off)
++        rd, rn = build_res_dic(root_dic_off, [("Textures(NW4R)", folder_dic_off)])
++        out[root_dic_off : root_dic_off + len(rd)] = rd
++        out[root_dic_off + len(rd) : root_dic_off + len(rd) + len(rn)] = rn
++
++        fd, fn = build_res_dic(folder_dic_off, [("tex_a", tex0_a_off), ("tex_b", tex0_b_off)])
++        out[folder_dic_off : folder_dic_off + len(fd)] = fd
++        out[folder_dic_off + len(fd) : folder_dic_off + len(fd) + len(fn)] = fn
++
++        def write_tex0(off: int, w: int, h: int, fmt: int, mips: int, data: bytes) -> None:
++            struct.pack_into(">4sIIiIiIHHII", out, off, b"TEX0", 64 + len(data), 1, -off, 64, 0, 0, w, h, fmt, mips)
++            out[off + 64 : off + 64 + len(data)] = data
++
++        write_tex0(tex0_a_off, 8, 8, 14, 1, tex_a_data)
++        write_tex0(tex0_b_off, 8, 8, 1, 2, tex_b_data)
++        wii_brres = bytes(out)
++
++        def build_dat(imgs: list[tuple[int, int, int, bytes]]) -> bytes:
++            data = bytearray()
++            relocs = []
++            descs_off = 0
++            data.extend(b"\x00" * (len(imgs) * 0x18))
++            for idx, (w, h, fmt, px_data) in enumerate(imgs):
++                ptr = len(data)
++                data.extend(px_data)
++                d_off = descs_off + idx * 0x18
++                struct.pack_into(">IHHIIff", data, d_off, ptr, w, h, fmt, 0, 0.0, 0.0)
++                relocs.append(d_off)
++            hdr = struct.pack(">5I12x", 0x20 + len(data) + len(relocs) * 4, len(data), len(relocs), 0, 0)
++            return hdr + bytes(data) + struct.pack(f">{len(relocs)}I", *relocs)
++
++        # In GC-JP: tex_a is CMPR green, tex_b is CMPR grey (0x40)
++        jp_b_cmpr = _encode_tpl_pixels(make_solid_rgba(8, 8, b"\x40\x40\x40\xff"), 8, 8, 14)
++        jp_dat = build_dat([(8, 8, 14, tex_a_data), (8, 8, 14, jp_b_cmpr)])
++        # In GC-target: tex_a unchanged, tex_b changed to bright white (0xFF) in CMPR
++        tgt_b_cmpr = _encode_tpl_pixels(make_solid_rgba(8, 8, b"\xff\xff\xff\xff"), 8, 8, 14)
++        tgt_dat = build_dat([(8, 8, 14, tex_a_data), (8, 8, 14, tgt_b_cmpr)])
++
++        new_brres, stats = replace_brres_textures(wii_brres, jp_dat, tgt_dat)
++        self.assertEqual(len(new_brres), len(wii_brres))
++        self.assertEqual(stats["unchanged"], ["tex_a"])
++        self.assertEqual(stats["reencoded"], ["tex_b"])
++        self.assertEqual(stats["skipped"], [])
++
++        parsed = {t["name"]: t for t in parse_brres_textures(new_brres)}
++        self.assertEqual(parsed["tex_a"]["data"], tex_a_data)
++        # Level 0 (8x8 I8) and Level 1 (4x4 I8) should both be ~0xFF luminance
++        new_b_m0 = _decode_tpl_pixels(bytes(parsed["tex_b"]["data"])[:64], 8, 8, 1)
++        new_b_m1 = _decode_tpl_pixels(bytes(parsed["tex_b"]["data"])[64:], 4, 4, 1)
++        self.assertGreater(new_b_m0[0], 240)
++        self.assertGreater(new_b_m1[0], 240)
++
++    def test_tpl_texturewise_jp_mapping(self) -> None:
++        w, h = 8, 8
++        def make_entry(fmt: int, rgba: bytes):
++            return {
++                "width": w, "height": h, "fmt": fmt,
++                "wrap_s": 0, "wrap_t": 0, "min_filter": 1, "mag_filter": 1,
++                "lod_bias": 0.0, "edge_lod": 0, "min_lod": 0, "max_lod": 0, "unpacked": 0,
++                "data": _encode_tpl_pixels(rgba, w, h, fmt), "pal_fmt": None, "pal_data": None,
++            }
++
++        extra_px = (b"\x00\xff\x00\xff" * (w * h))
++        t0_px = (b"\xff\x00\x00\xff" * (w * h))
++        t1_jp_px = (b"\x00\x00\xff\xff" * (w * h))
++        t1_tgt_px = (b"\xff\xff\x00\xff" * (w * h))
++
++        wii_tpl = _build_tpl([make_entry(5, extra_px), make_entry(5, t0_px), make_entry(5, t1_jp_px)])
++        jp_tpl = _build_tpl([make_entry(14, t0_px), make_entry(14, t1_jp_px)])
++        extra_16x8 = {
++            "width": 16, "height": 8, "fmt": 14,
++            "wrap_s": 0, "wrap_t": 0, "min_filter": 1, "mag_filter": 1,
++            "lod_bias": 0.0, "edge_lod": 0, "min_lod": 0, "max_lod": 0, "unpacked": 0,
++            "data": _encode_tpl_pixels(b"\x00\xff\x00\xff" * (16 * 8), 16, 8, 14),
++            "pal_fmt": None, "pal_data": None,
++        }
++        tgt_tpl = _build_tpl([make_entry(14, t0_px), extra_16x8, make_entry(14, t1_tgt_px)])
++
++        out_tpl, info = convert_tpl_textures_by_jp(wii_tpl, jp_tpl, tgt_tpl)
++        self.assertEqual(info["reencoded_indices"], [2])
++        self.assertEqual(info["replaced_indices"], [])
++        out_texs = parse_tpl_textures(out_tpl)
++        self.assertEqual(len(out_texs), 3)
++        dec2 = _decode_tpl_pixels(bytes(out_texs[2]["data"]), w, h, 5)
++        self.assertGreater(dec2[0], 200)  # R
++        self.assertGreater(dec2[1], 200)  # G
++        self.assertLess(dec2[2], 30)      # B
++
++    def test_tpl_text_decisions_allowlist(self) -> None:
++        w, h = 8, 8
++        def solid(rgba_tuple):
++            return _encode_tpl_pixels(bytes(rgba_tuple * (w * h)), w, h, 5)
++        def mk(data):
++            return {
++                "width": w,
++                "height": h,
++                "fmt": 5,
++                "pal_fmt": None,
++                "pal_data": None,
++                "wrap_s": 0,
++                "wrap_t": 0,
++                "min_filter": 1,
++                "mag_filter": 1,
++                "lod_bias": 0.0,
++                "edge_lod": 0,
++                "min_lod": 0,
++                "max_lod": 0,
++                "unpacked": 0,
++                "data": data,
++            }
++
++        jp0, jp1 = solid((200, 0, 0, 255)), solid((0, 200, 0, 255))
++        us0, us1 = solid((0, 0, 200, 255)), solid((200, 200, 0, 255))
++        wii_tpl = _build_tpl([mk(jp0), mk(jp1)])
++        jp_tpl = _build_tpl([mk(jp0), mk(jp1)])
++        tgt_tpl = _build_tpl([mk(us0), mk(us1)])
++
++        decisions = {0: (True, "text"), 1: (False, "graphic")}
++        out_tpl, info = convert_tpl_textures_by_jp(wii_tpl, jp_tpl, tgt_tpl, text_wii_indices=decisions)
++        self.assertEqual(info["replaced_indices"], [0])
++        self.assertTrue(any(s.get("wii_index") == 1 and s.get("reason") == "non_text_graphic" for s in info["skipped"]))
++        out_texs = parse_tpl_textures(out_tpl)
++        self.assertEqual(out_texs[0]["data"], us0)
++        self.assertEqual(out_texs[1]["data"], jp1)
++
++    def test_tpl_unique_mapping_skips_ambiguous_second_best(self) -> None:
++        w, h = 8, 8
++        def solid(r, g, b):
++            return _encode_tpl_pixels(bytes((r, g, b, 255) * (w * h)), w, h, 5)
++        def mk(data):
++            return {
++                "width": w,
++                "height": h,
++                "fmt": 5,
++                "pal_fmt": None,
++                "pal_data": None,
++                "wrap_s": 0,
++                "wrap_t": 0,
++                "min_filter": 1,
++                "mag_filter": 1,
++                "lod_bias": 0.0,
++                "edge_lod": 0,
++                "min_lod": 0,
++                "max_lod": 0,
++                "unpacked": 0,
++                "data": data,
++            }
++
++        # Two very close JP images (diff < min_margin=2.0) and a slightly shifted Wii image
++        jp0 = solid(100, 100, 100)
++        jp1 = solid(116, 100, 100)
++        wii0 = solid(108, 100, 100)
++        us0 = solid(0, 200, 0)
++        us1 = solid(0, 0, 200)
++        out_tpl, info = convert_tpl_textures_by_jp(
++            _build_tpl([mk(wii0)]), _build_tpl([mk(jp0), mk(jp1)]), _build_tpl([mk(us0), mk(us1)]),
++            max_mad=15.0, min_margin=2.0,
++        )
++        self.assertEqual(out_tpl, _build_tpl([mk(wii0)]))
++        self.assertTrue(any(s.get("wii_index") == 0 and s.get("reason") == "ambiguous_wii_match" for s in info["skipped"]))
++
++    def test_brres_mip0_raw_copy_when_same_format(self) -> None:
++        w, h, fmt = 8, 8, 14  # CMPR
++        lvl0_jp = b"\x00" * 32
++        lvl1_jp = b"\x00" * 8
++        lvl0_tgt = b"\xab" * 32  # arbitrary synthetic raw CMPR bytes
++        # Build minimal BRRES with 1 TEX0 (mip_count=2)
++        tex0_hdr = bytearray(0x40)
++        tex0_hdr[0:4] = b"TEX0"
++        struct.pack_into(">IIiIiIHHII", tex0_hdr, 4, 0x40 + 40, 1, 0, 0x40, 0, 0, w, h, fmt, 2)
++        brres = bytearray(0x100 + len(tex0_hdr) + 40)
++        brres[0:4] = b"bres"
++        struct.pack_into(">H", brres, 12, 0x10)
++        brres[0x10:0x14] = b"root"
++        # root idx_group @ 0x18: 1 folder ("Textures(NW4R)")
++        struct.pack_into(">II", brres, 0x18, 0, 1)
++        struct.pack_into(">HHHHII", brres, 0x20 + 0x10, 0, 0, 0, 0, 0x40, 0x60)
++        brres[0x58:0x58 + 15] = b"Textures(NW4R)\x00"
++        # tex idx_group @ 0x78: 1 entry ("tex_mip")
++        struct.pack_into(">II", brres, 0x78, 0, 1)
++        struct.pack_into(">HHHHII", brres, 0x80 + 0x10, 0, 0, 0, 0, 0x30, 0x88)
++        brres[0xA8:0xA8 + 8] = b"tex_mip\x00"
++        tex_off = 0x100
++        brres[tex_off : tex_off + len(tex0_hdr)] = tex0_hdr
++        brres[tex_off + 0x40 : tex_off + 0x40 + 32] = lvl0_jp
++        brres[tex_off + 0x60 : tex_off + 0x60 + 8] = lvl1_jp
++
++        def make_dat(img_data: bytes) -> bytes:
++            data_sz = 0x20 + 0x18 + 32
++            buf = bytearray(0x20 + data_sz + 4)
++            struct.pack_into(">5I", buf, 0, len(buf), data_sz, 1, 0, 0)
++            struct.pack_into(">IHHIIff", buf, 0x20, 0x18, w, h, fmt, 0, 0.0, 0.0)
++            buf[0x20 + 0x18 : 0x20 + 0x18 + 32] = img_data
++            struct.pack_into(">I", buf, 0x20 + data_sz, 0)
++            return bytes(buf)
++
++        new_br, info = replace_brres_textures(bytes(brres), make_dat(lvl0_jp), make_dat(lvl0_tgt))
++        self.assertEqual(info["replaced"], ["tex_mip"])
++        self.assertEqual(info["reencoded"], [])
++        parsed = parse_brres_textures(new_br)
++        self.assertEqual(bytes(parsed[0]["data"])[:32], lvl0_tgt)
++
++    def test_cb_book_structural_mapping_separates_identical_jp_pages(self) -> None:
++        w, h, fmt = 128, 128, 14
++        # Minimal synthetic 128x128 CMPR (8192 bytes) and 256x256 CMPR (32768 bytes)
++        jp_blank = b"\x11" * 8192
++        jp_r1 = b"\x22" * 8192
++        jp_l1 = b"\x33" * 32768
++        us_r0 = b"\x44" * 8192
++        us_l0 = b"\x55" * 8192
++        us_r1 = b"\x66" * 8192
++        us_l1 = b"\x77" * 32768
++
++        def make_book_dat(l0_img: bytes, r0_img: bytes, l1_img: bytes, r1_img: bytes) -> bytes:
++            # Layout in data section:
++            # 0x000..0x060: 4 HSD_ImageDesc (L0, R0, L1, R1)
++            # 0x060..0x1D0: 4 HSD_TObjDesc (L0, R0, L1, R1 -> 4 * 0x5C = 0x170)
++            # 0x1D0..0x210: 3 HSD_MObjDesc (3 * 0x10)
++            # 0x210..0x250: 3 HSD_DObjDesc (3 * 0x10)
++            # 0x250..0x2A0: 3 HSD_JObjDesc (J_L0, J_R, J_L1)
++            # 0x2A0..0x2B0: ModelSet + ModelsPtr + SceneData
++            # 0x2B0..0x2E0: 2 TexAnims (2 frames each: [L1, L1] and [R1, R1])
++            # 0x2F0..: pixel blobs
++            img_base = 0x320
++            desc_base = 0x10
++            blobs = [l0_img, r0_img, l1_img, r1_img]
++            data_sz = img_base + sum(len(x) for x in blobs)
++            buf = bytearray(0x20 + data_sz)
++            relocs: list[int] = []
++            cur_p = img_base
++            for i, (bw, bh, blob) in enumerate([(128, 128, l0_img), (128, 128, r0_img), (256, 256, l1_img), (128, 128, r1_img)]):
++                doff = desc_base + i * 0x18
++                struct.pack_into(">IHHIIff", buf, 0x20 + doff, cur_p, bw, bh, fmt, 0, 0.0, 0.0)
++                relocs.append(doff)
++                buf[0x20 + cur_p : 0x20 + cur_p + len(blob)] = blob
++                cur_p += len(blob)
++
++            # TObjDescs: 0=L0, 1=R0, 2=L1, 3=R1
++            for i in range(4):
++                toff = 0x80 + i * 0x5C
++                nxt_t = (0x80 + 3 * 0x5C) if i == 1 else 0  # R0 chains to R1 on same JObj!
++                struct.pack_into(">II", buf, 0x20 + toff, 0, nxt_t)
++                struct.pack_into(">I", buf, 0x20 + toff + 0x4C, desc_base + i * 0x18)
++                relocs.append(toff + 0x4C)
++                if nxt_t:
++                    relocs.append(toff + 4)
++
++            # MObjDescs for L0(0), R0+R1(1), L1(2)
++            for i, toff in [(0, 0x80), (1, 0x80 + 0x5C), (2, 0x80 + 2 * 0x5C)]:
++                moff = 0x1F0 + i * 0x10
++                struct.pack_into(">I", buf, 0x20 + moff + 0x08, toff)
++                relocs.append(moff + 0x08)
++                doff = 0x230 + i * 0x10
++                struct.pack_into(">I", buf, 0x20 + doff + 0x08, moff)
++                relocs.append(doff + 0x08)
++
++            # JObj0 (L0) -> next JObj1 (R0+R1) -> next JObj2 (L1)
++            j0, j1, j2 = 0x270, 0x288, 0x2A0
++            struct.pack_into(">5I", buf, 0x20 + j0, 0, 0, 0, j1, 0x230)
++            struct.pack_into(">5I", buf, 0x20 + j1, 0, 0, 0, j2, 0x240)
++            struct.pack_into(">5I", buf, 0x20 + j2, 0, 0, 0, 0, 0x250)
++            # SceneData @ 0x2C8 -> models_ptr @ 0x2C4 -> model_set @ 0x2C0 -> j0
++            struct.pack_into(">I", buf, 0x20 + 0x2C0, j0)
++            struct.pack_into(">I", buf, 0x20 + 0x2C4, 0x2C0)
++            struct.pack_into(">I", buf, 0x20 + 0x2C8, 0x2C4)
++
++            # TexAnims: imagetbl at 0x2D0 (L1, L1) & 0x2D8 (R1, R1); structs at 0x2E0 & 0x2F8
++            struct.pack_into(">II", buf, 0x20 + 0x2D0, desc_base + 2 * 0x18, desc_base + 2 * 0x18)
++            struct.pack_into(">II", buf, 0x20 + 0x2D8, desc_base + 3 * 0x18, desc_base + 3 * 0x18)
++            struct.pack_into(">II", buf, 0x20 + 0x2EC, 0x2D0, 0)
++            struct.pack_into(">HH", buf, 0x20 + 0x2EC + 8, 2, 0)
++            struct.pack_into(">II", buf, 0x20 + 0x304, 0x2D8, 0)
++            struct.pack_into(">HH", buf, 0x20 + 0x304 + 8, 2, 0)
++            relocs.extend([0x2D0, 0x2D8, 0x2EC, 0x304])
++
++            reloc_bytes = struct.pack(f">{len(relocs)}I", *relocs)
++            root_bytes = struct.pack(">II", 0x2C8, 0) + b"scene_data\x00"
++            hdr = struct.pack(">5I", 0x20 + data_sz + len(reloc_bytes) + len(root_bytes), data_sz, len(relocs), 1, 0) + (b"\x00" * 12)
++            return hdr + bytes(buf[0x20:]) + reloc_bytes + root_bytes
++
++        # Build minimal BRRES with page_L.0 (128x128), page_L.1 (256x256), page_R.0 (128x128), page_R.1 (128x128)
++        entries = [
++            ("page_L.0", 128, 128, jp_blank),
++            ("page_L.1", 256, 256, jp_l1),
++            ("page_R.0", 128, 128, jp_blank),
++            ("page_R.1", 128, 128, jp_r1),
++        ]
++        # Simple BRRES layout: root @ 0x10, folder_grp @ 0x18 (40B), tex_grp @ 0x40 (8 + 5*16 = 88B), names @ 0xA0, TEX0s @ 0x100
++        br = bytearray(0x100)
++        br[0:4] = b"bres"
++        struct.pack_into(">H", br, 12, 0x10)
++        br[0x10:0x14] = b"root"
++        struct.pack_into(">II", br, 0x18, 0, 1)
++        struct.pack_into(">HHHHII", br, 0x18 + 0x18, 0, 0, 0, 0, 0xA0 - 0x18, 0x40 - 0x18)
++        br[0xA0 : 0xA0 + 15] = b"Textures(NW4R)\x00"
++        struct.pack_into(">II", br, 0x40, 0, len(entries))
++        name_cur = 0xB0
++        tex_cur = 0x100
++        for idx, (nm, ew, eh, blob) in enumerate(entries):
++            nb = nm.encode("ascii") + b"\x00"
++            br[name_cur : name_cur + len(nb)] = nb
++            struct.pack_into(">HHHHII", br, 0x40 + 8 + (idx + 1) * 16, 0, 0, 0, 0, name_cur - 0x40, tex_cur - 0x40)
++            name_cur += len(nb)
++            tex0 = bytearray(0x40 + len(blob))
++            tex0[0:4] = b"TEX0"
++            struct.pack_into(">IIiIiIHHII", tex0, 4, len(tex0), 1, 0, 0x40, 0, 0, ew, eh, fmt, 1)
++            tex0[0x40:] = blob
++            br.extend(tex0)
++            tex_cur += len(tex0)
++
++        jp_dat = make_book_dat(jp_blank, jp_blank, jp_l1, jp_r1)
++        tgt_dat = make_book_dat(us_l0, us_r0, us_l1, us_r1)
++        new_br, info = replace_brres_textures(bytes(br), jp_dat, tgt_dat, structural_book=True)
++        parsed = {t["name"]: bytes(t["data"]) for t in parse_brres_textures(new_br)}
++        self.assertEqual(parsed["page_L.0"], us_l0)
++        self.assertEqual(parsed["page_R.0"], us_r0)
++        self.assertIn("page_L.0", info["replaced"])
++        self.assertIn("page_R.0", info["replaced"])
++
++    def test_press_a_pages_replace_textures_0_and_1_only(self) -> None:
++        # a font with one glyph: 'A' is a solid 8x24 block
++        metrics = [(0, 0, 0)] * 256
++        metrics[0x41] = (0, 0, 8)
++        atlas = bytearray(512 * 512 * 4)
++        for y in range(24):
++            for x in range(8):
++                atlas[(y * 512 + x) * 4 : (y * 512 + x) * 4 + 4] = b"\xff\xff\xff\xff"
++
++        def tex(w: int, h: int, fmt: int, rgba: bytes) -> dict:
++            return {"width": w, "height": h, "fmt": fmt, "wrap_s": 0, "wrap_t": 0, "min_filter": 1, "mag_filter": 1,
++                    "lod_bias": 0.0, "edge_lod": 0, "min_lod": 0, "max_lod": 0, "unpacked": 0,
++                    "data": _encode_tpl_pixels(rgba, w, h, fmt), "pal_fmt": None, "pal_data": None}
++
++        white = bytes([255, 255, 255, 255])
++        logo = _build_tpl([tex(640, 480, 4, white * (640 * 480)), tex(640, 480, 4, white * (640 * 480)), tex(16, 16, 4, white * 256)])
++        # misc.tpl needs the sprites the pages take: 119 the stripes, 131 and 133 the robot
++        misc = _build_tpl([tex(16, 16, 0, white * 256) if i == 119 else tex(8, 8, 2, white * 64) for i in range(134)])
++
++        out = parse_tpl_textures(press_a_tpl(logo, misc, ["AAA", "A"], metrics, bytes(atlas)))
++        before = parse_tpl_textures(logo)
++        self.assertEqual(out[2]["data"], before[2]["data"])
++        pages = [bytes(_decode_tpl_pixels(bytes(t["data"]), 640, 480, 4)) for t in out[:2]]
++        for page in pages:
++            self.assertEqual(page[:4], b"\x00\x00\x00\xff")  # black background
++            self.assertIn(white, [page[i : i + 4] for i in range(0, len(page), 4)])  # with the text on it
++        self.assertNotEqual(pages[0], pages[1])  # the robot has moved on
++
 +
 +if __name__ == "__main__":
 +    unittest.main()
 diff --git a/tools/test_wii_lang_install.py b/tools/test_wii_lang_install.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..f1d674396c59345da97f022d7c9a143d1d842cb8
+index 00000000..f1d67439
 --- /dev/null
 +++ b/tools/test_wii_lang_install.py
 @@ -0,0 +1,39 @@
@@ -2458,7 +2874,7 @@ index 0000000000000000000000000000000000000000..f1d674396c59345da97f022d7c9a143d
 +            self.assertEqual((target / "de/bin").read_bytes(), b"de")
 diff --git a/tools/test_wii_locale.py b/tools/test_wii_locale.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..0abf8c19a18cd61b28367f8024f2441cd5875192
+index 00000000..0abf8c19
 --- /dev/null
 +++ b/tools/test_wii_locale.py
 @@ -0,0 +1,130 @@
@@ -2594,7 +3010,7 @@ index 0000000000000000000000000000000000000000..0abf8c19a18cd61b28367f8024f2441c
 +                        write_header(source, "test", root / "locale.h")
 diff --git a/tools/test_wii_stage_names.py b/tools/test_wii_stage_names.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..05ddc82852c1f182518d1eb660e32e1b31e689cf
+index 00000000..05ddc828
 --- /dev/null
 +++ b/tools/test_wii_stage_names.py
 @@ -0,0 +1,169 @@
@@ -2769,7 +3185,7 @@ index 0000000000000000000000000000000000000000..05ddc82852c1f182518d1eb660e32e1b
 +    unittest.main()
 diff --git a/tools/test_wii_text_map.py b/tools/test_wii_text_map.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..25078cc27b4e20f5d678939b03e04b27884a5f81
+index 00000000..25078cc2
 --- /dev/null
 +++ b/tools/test_wii_text_map.py
 @@ -0,0 +1,15 @@
@@ -2790,7 +3206,7 @@ index 0000000000000000000000000000000000000000..25078cc27b4e20f5d678939b03e04b27
 +                         ([None, None, 1], [0]))
 diff --git a/tools/wii_iso.py b/tools/wii_iso.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..64be8d78d0de1a4b18bb87733c9851aeabe3d2d1
+index 00000000..64be8d78
 --- /dev/null
 +++ b/tools/wii_iso.py
 @@ -0,0 +1,175 @@
@@ -2971,10 +3387,10 @@ index 0000000000000000000000000000000000000000..64be8d78d0de1a4b18bb87733c9851ae
 +    main()
 diff --git a/tools/wii_lang_data.py b/tools/wii_lang_data.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..4d48af7d6ebd413e61cc28d739ff7d277764443b
+index 00000000..0ff93c76
 --- /dev/null
 +++ b/tools/wii_lang_data.py
-@@ -0,0 +1,1489 @@
+@@ -0,0 +1,2587 @@
 +#!/usr/bin/env python3
 +"""Build per-language override files for Chibi-Robo! Wii (R24J01) from GC US/PAL discs."""
 +
@@ -2982,6 +3398,7 @@ index 0000000000000000000000000000000000000000..4d48af7d6ebd413e61cc28d739ff7d27
 +
 +import argparse
 +import difflib
++import hashlib
 +import json
 +import os
 +import shutil
@@ -2990,6 +3407,8 @@ index 0000000000000000000000000000000000000000..4d48af7d6ebd413e61cc28d739ff7d27
 +import sys
 +from pathlib import Path
 +from typing import Dict, List, Optional, Sequence, Tuple
++
++from PIL import Image, ImageDraw
 +
 +LANG_SPECS: Dict[str, Tuple[str, str, str]] = {
 +    # code: (disc_key, gc_bin_sub, gc_tpl_suffix)
@@ -4200,6 +4619,973 @@ index 0000000000000000000000000000000000000000..4d48af7d6ebd413e61cc28d739ff7d27
 +    return _build_tpl(converted_texs), {"reason": "reencoded", "reencoded_textures": reencoded}
 +
 +
++def _decode_tpl_list(texs: List[Dict[str, object]]) -> List[Tuple[int, int, int, bytes, str]]:
++    out: List[Tuple[int, int, int, bytes, str]] = []
++    for t in texs:
++        w = int(t["width"])
++        h = int(t["height"])
++        fmt = int(t["fmt"])
++        rgba = bytes(
++            _decode_tpl_pixels(
++                bytes(t["data"]),
++                w,
++                h,
++                fmt,
++                t["pal_fmt"] if t["pal_fmt"] is None else int(t["pal_fmt"]),
++                t["pal_data"] if t["pal_data"] is None else bytes(t["pal_data"]),
++            )
++        )
++        out.append((w, h, fmt, rgba, hashlib.md5(rgba).hexdigest()))
++    return out
++
++
++MISC_TPL_TEXT_DECISIONS: Dict[int, Tuple[bool, str]] = {
++    7: (True, "Kaffeebecher-Icon (umrandet): japanische Aufschrift -> westliche Fassung"),
++    38: (True, "Liebesbrief-Icon (umrandet): japanischer Stempel/Text -> westliche Fassung"),
++    42: (False, "Sammelkarte/Huelle: nur Farb-/Grafikaenderung (Visier blau -> gelb), kein Text"),
++    43: (False, "Spielzeug-Raumschiff (umrandet): anderes Modell/Grafik, kein Text"),
++    67: (False, "Geraet/Pieper (umrandet): nur Farbaenderung (rot -> hellblau), kein Text"),
++    95: (True, "Kaffeebecher-Icon (ohne Rahmen): japanische Aufschrift -> westliche Fassung"),
++    98: (False, "Drake-Redcrest-Helm: nur Farbaenderung (Visier blau -> gelb), kein Text"),
++    170: (True, "Chip-Icon 48x48: Katakana entfernt"),
++    171: (True, "Chip-Icon 48x48: Katakana entfernt"),
++    180: (True, "Chip-Icon 48x48: Katakana entfernt"),
++    186: (False, "Actionfigur (Kuerbis-Soldat): andere Grafik/Farbe, kein Text"),
++    206: (False, "Drake-Redcrest-Actionfigur: nur Farbaenderung (Visier blau -> gelb), kein Text"),
++    215: (False, "Schattenriss Spielzeug-Raumschiff: anderes Modell, kein Text"),
++    216: (False, "Spielzeug-Raumschiff (ohne Rahmen): anderes Modell, kein Text"),
++    224: (False, "Geraet/Pieper (ohne Rahmen): nur Farbaenderung (rot -> hellblau), kein Text"),
++}
++
++
++def _render_misc_preview(
++    preview_path: Path,
++    rows: Sequence[Tuple[int, int, int, str, Tuple[int, int, bytes], Tuple[int, int, bytes], Tuple[int, int, bytes]]],
++) -> None:
++    """Save side-by-side overview PNG (Wii, GC-JP, Result) for replaced/skipped textures."""
++    if not rows:
++        return
++    row_h = 84
++    canvas = Image.new("RGBA", (920, len(rows) * row_h), (36, 36, 36, 255))
++    draw = ImageDraw.Draw(canvas)
++    for idx, (wi, ji, ti, label, w_im, j_im, r_im) in enumerate(rows):
++        y = idx * row_h + 6
++        draw.text((8, y + 6), f"wii[{wi}] jp[{ji}] us[{ti}]\n{label}", fill=(240, 240, 240, 255))
++        for col_i, (rw, rh, rbytes) in enumerate((w_im, j_im, r_im)):
++            im = Image.frombytes("RGBA", (rw, rh), rbytes)
++            scale = max(1, min(2, 64 // max(1, rh)))
++            if scale > 1:
++                im = im.resize((rw * scale, rh * scale), Image.Resampling.NEAREST)
++            canvas.paste(im, (240 + col_i * 220, y), im)
++    preview_path.parent.mkdir(parents=True, exist_ok=True)
++    canvas.save(preview_path)
++
++
++def convert_tpl_textures_by_jp(
++    wii_tpl: bytes,
++    jp_tpl: bytes,
++    target_tpl: bytes,
++    max_mad: float = 15.0,
++    min_margin: float = 2.0,
++    text_wii_indices: Optional[Dict[int, Tuple[bool, str]]] = None,
++    preview_path: Optional[Path] = None,
++) -> Tuple[bytes, Dict[str, object]]:
++    """Map Wii TPL textures to target TPL via GC-JP reference and replace differing text ones."""
++    w_texs = parse_tpl_textures(wii_tpl)
++    j_texs = parse_tpl_textures(jp_tpl)
++    t_texs = parse_tpl_textures(target_tpl)
++
++    w_dec = _decode_tpl_list(w_texs)
++    j_dec = _decode_tpl_list(j_texs)
++    t_dec = _decode_tpl_list(t_texs)
++
++    # Map JP -> target using RGBA-hash anchors and (w, h) counts in gaps
++    j_keys = [x[4] for x in j_dec]
++    t_keys = [x[4] for x in t_dec]
++    sm_jt = difflib.SequenceMatcher(None, j_keys, t_keys, autojunk=False)
++    jp_to_tgt: Dict[int, int] = {}
++    for tag, i1, i2, j1, j2 in sm_jt.get_opcodes():
++        if tag == "equal":
++            for k in range(i2 - i1):
++                jp_to_tgt[i1 + k] = j1 + k
++        elif tag == "replace":
++            by_dim_j: Dict[Tuple[int, int], List[int]] = {}
++            by_dim_t: Dict[Tuple[int, int], List[int]] = {}
++            for ji in range(i1, i2):
++                by_dim_j.setdefault((j_dec[ji][0], j_dec[ji][1]), []).append(ji)
++            for ti in range(j1, j2):
++                by_dim_t.setdefault((t_dec[ti][0], t_dec[ti][1]), []).append(ti)
++            for dim, jl in by_dim_j.items():
++                tl = by_dim_t.get(dim, [])
++                if len(jl) == len(tl):
++                    for ji, ti in zip(jl, tl):
++                        jp_to_tgt[ji] = ti
++            if i2 - i1 == 1 and j2 - j1 == 1 and i1 not in jp_to_tgt:
++                jp_to_tgt[i1] = j1
++
++    # Map Wii -> JP: exact hash anchors first, then global non-greedy MAD with second-best margin
++    w_keys = [x[4] for x in w_dec]
++    sm_wj = difflib.SequenceMatcher(None, w_keys, j_keys, autojunk=False)
++    wii_to_jp: Dict[int, int] = {}
++    used_jp = set()
++    for tag, i1, i2, j1, j2 in sm_wj.get_opcodes():
++        if tag == "equal":
++            for k in range(i2 - i1):
++                wii_to_jp[i1 + k] = j1 + k
++                used_jp.add(j1 + k)
++
++    unmapped_w = [wi for wi in range(len(w_dec)) if wi not in wii_to_jp]
++    unmapped_j = [ji for ji in range(len(j_dec)) if ji not in used_jp]
++    all_pairs: List[Tuple[float, int, int]] = []
++    w_cands: Dict[int, List[Tuple[float, int]]] = {}
++    for wi in unmapped_w:
++        ww, wh, _, wrgba, w_md5 = w_dec[wi]
++        cands: List[Tuple[float, int]] = []
++        for ji in unmapped_j:
++            jw, jh, _, jrgba, j_md5 = j_dec[ji]
++            if ww != jw or wh != jh:
++                continue
++            mad = 0.0 if w_md5 == j_md5 else _mean_abs_rgba_diff(wrgba, jrgba)
++            cands.append((mad, ji))
++            if mad <= max_mad:
++                all_pairs.append((mad, wi, ji))
++        cands.sort()
++        w_cands[wi] = cands
++
++    ambiguous_wii: Dict[int, Dict[str, object]] = {}
++    for wi, cands in w_cands.items():
++        if len(cands) >= 2 and cands[0][0] <= max_mad and (cands[1][0] - cands[0][0]) < min_margin:
++            ambiguous_wii[wi] = {
++                "wii_index": wi,
++                "best_jp": cands[0][1],
++                "best_mad": round(cands[0][0], 3),
++                "second_jp": cands[1][1],
++                "second_mad": round(cands[1][0], 3),
++                "reason": "ambiguous_wii_match",
++            }
++
++    all_pairs.sort()
++    for mad, wi, ji in all_pairs:
++        if wi in wii_to_jp or wi in ambiguous_wii or ji in used_jp:
++            continue
++        wii_to_jp[wi] = ji
++        used_jp.add(ji)
++
++    out_texs: List[Dict[str, object]] = [dict(wt) for wt in w_texs]
++    replaced_indices: List[int] = []
++    reencoded_indices: List[int] = []
++    skipped: List[Dict[str, object]] = []
++    preview_rows: List[
++        Tuple[int, int, int, str, Tuple[int, int, bytes], Tuple[int, int, bytes], Tuple[int, int, bytes]]
++    ] = []
++
++    for wi, info in sorted(ambiguous_wii.items()):
++        skipped.append(info)
++
++    for wi, wt in enumerate(w_texs):
++        ji = wii_to_jp.get(wi)
++        if ji is None:
++            continue
++        ti = jp_to_tgt.get(ji)
++        if ti is None:
++            skipped.append({"wii_index": wi, "jp_index": ji, "reason": "no_target_match"})
++            continue
++        if j_dec[ji][4] == t_dec[ti][4]:
++            continue  # Not changed between GC-JP and GC-target
++        ww, wh, w_fmt = int(wt["width"]), int(wt["height"]), int(wt["fmt"])
++        tw, th, t_fmt, trgba, _ = t_dec[ti]
++        wrgba = w_dec[wi][3]
++        jrgba = j_dec[ji][3]
++        if text_wii_indices is not None:
++            dec = text_wii_indices.get(wi)
++            if dec is None:
++                skipped.append({"wii_index": wi, "jp_index": ji, "target_index": ti, "reason": "unlisted_non_text"})
++                preview_rows.append((wi, ji, ti, "SKIP unlisted", (ww, wh, wrgba), (j_dec[ji][0], j_dec[ji][1], jrgba), (ww, wh, wrgba)))
++                continue
++            if not dec[0]:
++                skipped.append({"wii_index": wi, "jp_index": ji, "target_index": ti, "reason": "non_text_graphic", "detail": dec[1]})
++                preview_rows.append((wi, ji, ti, "SKIP non-text", (ww, wh, wrgba), (j_dec[ji][0], j_dec[ji][1], jrgba), (ww, wh, wrgba)))
++                continue
++        if ww != tw or wh != th:
++            skipped.append(
++                {
++                    "wii_index": wi,
++                    "jp_index": ji,
++                    "target_index": ti,
++                    "reason": "dimension_mismatch",
++                    "wii": [ww, wh],
++                    "target": [tw, th],
++                }
++            )
++            continue
++        tt = t_texs[ti]
++        if w_fmt == t_fmt and wt["pal_fmt"] == tt["pal_fmt"]:
++            out_texs[wi]["data"] = tt["data"]
++            out_texs[wi]["pal_data"] = tt["pal_data"]
++            replaced_indices.append(wi)
++            res_rgba = trgba
++        else:
++            if w_fmt not in (0, 1, 2, 3, 4, 5, 6, 14):
++                skipped.append(
++                    {"wii_index": wi, "jp_index": ji, "reason": "unsupported_wii_format", "wii_fmt": w_fmt}
++                )
++                continue
++            enc = _encode_tpl_pixels(trgba, ww, wh, w_fmt)
++            out_texs[wi]["data"] = enc
++            out_texs[wi]["pal_fmt"] = None
++            out_texs[wi]["pal_data"] = None
++            reencoded_indices.append(wi)
++            res_rgba = bytes(_decode_tpl_pixels(enc, ww, wh, w_fmt))
++        preview_rows.append((wi, ji, ti, "REPLACED (text)", (ww, wh, wrgba), (j_dec[ji][0], j_dec[ji][1], jrgba), (ww, wh, res_rgba)))
++
++    # Also report any differing JP->target textures that had no Wii match
++    mapped_jps = set(wii_to_jp.values())
++    for ji, ti in sorted(jp_to_tgt.items()):
++        if j_dec[ji][4] != t_dec[ti][4] and ji not in mapped_jps:
++            skipped.append(
++                {
++                    "jp_index": ji,
++                    "target_index": ti,
++                    "reason": "no_wii_match",
++                    "jp": [j_dec[ji][0], j_dec[ji][1]],
++                    "target": [t_dec[ti][0], t_dec[ti][1]],
++                }
++            )
++
++    if preview_path is not None:
++        _render_misc_preview(preview_path, preview_rows)
++
++    new_b = _build_tpl(out_texs) if (replaced_indices or reencoded_indices) else wii_tpl
++    return new_b, {
++        "reason": "texturewise_jp_mapped" if (replaced_indices or reencoded_indices) else "no_matching_text_changes",
++        "mapped_textures": len(wii_to_jp),
++        "replaced_indices": replaced_indices,
++        "reencoded_indices": reencoded_indices,
++        "skipped": skipped,
++    }
++
++
++SINGLE_BYTE_FONT_VA = 0x80335120
++SINGLE_BYTE_FONT_ATLAS_DELTA = 0xC40
++SINGLE_BYTE_FONT_ATLAS_SIZE = 0x20000
++
++
++def _dol_va_to_offset(dol_bytes: bytes, va: int) -> int:
++    if len(dol_bytes) < 0x100:
++        raise ValueError("DOL too short")
++    sec_offs = struct.unpack_from(">18I", dol_bytes, 0x00)
++    sec_addrs = struct.unpack_from(">18I", dol_bytes, 0x48)
++    sec_sizes = struct.unpack_from(">18I", dol_bytes, 0x90)
++    for off, addr, sz in zip(sec_offs, sec_addrs, sec_sizes):
++        if sz > 0 and addr <= va < addr + sz:
++            return off + (va - addr)
++    raise ValueError(f"Virtual address 0x{va:08x} not found in DOL sections")
++
++
++def load_dol_single_byte_font(
++    dol_bytes: bytes, font_va: int = SINGLE_BYTE_FONT_VA
++) -> Tuple[List[Tuple[int, int, int]], bytes]:
++    """Load gSingleByteGlyphMetrics[256] and 512x512 I4 font atlas RGBA from Wii main.dol."""
++    hdr_off = _dol_va_to_offset(dol_bytes, font_va)
++    if hdr_off + SINGLE_BYTE_FONT_ATLAS_DELTA + SINGLE_BYTE_FONT_ATLAS_SIZE > len(dol_bytes):
++        raise ValueError("Single-byte font data extends past end of DOL")
++    metrics = [
++        struct.unpack_from(">3I", dol_bytes, hdr_off + 0x30 + i * 12) for i in range(256)
++    ]
++    atlas_raw = dol_bytes[
++        hdr_off + SINGLE_BYTE_FONT_ATLAS_DELTA : hdr_off + SINGLE_BYTE_FONT_ATLAS_DELTA + SINGLE_BYTE_FONT_ATLAS_SIZE
++    ]
++    atlas_rgba = bytes(_decode_tpl_pixels(atlas_raw, 512, 512, 0))
++    return metrics, atlas_rgba
++
++
++def _dol_glyph_code(byte_val: int, metrics: Sequence[Tuple[int, int, int]]) -> int:
++    """Use the DOL font's short hyphen (0xAD, 10px) instead of the wide dash (0x2D, 17px) when available."""
++    if byte_val == 0x2D and len(metrics) > 0xAD and metrics[0xAD][2] > 0:
++        return 0xAD
++    return byte_val
++
++
++def _measure_dol_text_width(text: str, metrics: Sequence[Tuple[int, int, int]]) -> int:
++    raw = text.encode("latin-1", errors="replace")
++    return sum(int(metrics[_dol_glyph_code(b, metrics)][2]) for b in raw)
++
++
++# The mod's first screen. The game shows textures 0 and 1 of logo.tpl (logow.tpl on a 16:9 screen) one after the
++# other; in retail they are the Wii Remote strap warnings. The mod puts a plain sentence there over the look of
++# the loading bar, drawn with the game's own font and sprites from the user's disc.
++PRESS_A_WALK_FRAMES = (131, 133)  # misc.tpl: the robot's walk cycle is 131 to 134
++PRESS_A_STRIPES = 119  # misc.tpl: the loading bar's fill
++PRESS_A_BAR_COLOR = (0x9F, 0xFA, 0x1C)  # the colour the game draws the fill in
++PRESS_A_PROGRESS = (0.35, 0.7)  # how far the robot is on each of the two pages
++
++
++def _draw_dol_text_centered(
++    img: Image.Image,
++    atlas_img: Image.Image,
++    metrics: Sequence[Tuple[int, int, int]],
++    text: str,
++    center_x: float,
++    y: float,
++    scale: float,
++    color: Tuple[int, int, int],
++) -> None:
++    raw = text.encode("latin-1", errors="replace")
++    x = center_x - _measure_dol_text_width(text, metrics) * scale / 2
++    glyph_h = max(1, round(24 * scale))
++    for b in raw:
++        gx, gy, gw = metrics[_dol_glyph_code(b, metrics)]
++        if gw > 0:
++            scaled_w = max(1, round(gw * scale))
++            cell = atlas_img.crop((gx, gy, gx + gw, gy + 24)).resize((scaled_w, glyph_h), Image.Resampling.LANCZOS)
++            img.paste(Image.new("RGBA", (scaled_w, glyph_h), (*color, 255)), (round(x), round(y)), cell.split()[0])
++        x += gw * scale
++
++
++def render_press_a_image(
++    w: int,
++    h: int,
++    lines: Sequence[str],
++    metrics: Sequence[Tuple[int, int, int]],
++    atlas_rgba: bytes,
++    robot: Image.Image,
++    stripes: Image.Image,
++    progress: float,
++) -> bytes:
++    """One page: `lines` centred above the loading bar, the robot `progress` (0 to 1) of the way along it."""
++    img = Image.new("RGBA", (w, h), (0, 0, 0, 255))
++    atlas_img = Image.frombytes("RGBA", (512, 512), atlas_rgba)
++    y = h * 0.36
++    for i, text in enumerate(lines):
++        scale = 1.25 if i == 0 else 0.85
++        # shrink a line that would not fit the 4:3 picture's safe width
++        scale = min(scale, 560 / max(1, _measure_dol_text_width(text, metrics)))
++        _draw_dol_text_centered(img, atlas_img, metrics, text, w / 2, y, scale, (255, 255, 255) if i == 0 else (190, 190, 190))
++        y += 24 * scale * 1.6
++
++    bar_w, bar_h = 300, 10
++    left, top = (w - bar_w) // 2, round(h * 0.84)
++    fill = round(bar_w * progress)
++    tile = Image.new("RGBA", stripes.size, (*PRESS_A_BAR_COLOR, 255))
++    tile.putalpha(stripes.split()[0])
++    for x in range(0, fill, tile.width):
++        piece = tile.crop((0, 0, min(tile.width, fill - x), min(tile.height, bar_h)))
++        img.alpha_composite(piece, (left + x, top))
++    ImageDraw.Draw(img).rectangle((left - 2, top - 2, left + bar_w + 1, top + bar_h + 1), outline=(200, 200, 200, 255))
++    # the game draws him mirrored, at 0.8 of his size, walking along the bar
++    sprite = robot.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
++    sprite = sprite.resize((round(sprite.width * 0.8), round(sprite.height * 0.8)), Image.Resampling.LANCZOS)
++    img.alpha_composite(sprite, (left + fill - sprite.width // 2, top - sprite.height + 4))
++    return img.tobytes()
++
++
++def press_a_tpl(
++    wii_tpl: bytes,
++    misc_tpl: bytes,
++    lines: Sequence[str],
++    font_metrics: Sequence[Tuple[int, int, int]],
++    font_atlas_rgba: bytes,
++    preview_dir: Optional[Path] = None,
++    preview_prefix: str = "",
++) -> bytes:
++    """logo.tpl / logow.tpl with textures 0 and 1 replaced by the mod's "press A" pages."""
++    texs = parse_tpl_textures(wii_tpl)
++    if len(texs) < 2:
++        raise ValueError(f"Expected at least 2 textures in the logo TPL, got {len(texs)}")
++    misc = parse_tpl_textures(misc_tpl)
++
++    def sprite(index: int) -> Image.Image:
++        t = misc[index]
++        size = (int(t["width"]), int(t["height"]))
++        px = _decode_tpl_pixels(bytes(t["data"]), size[0], size[1], int(t["fmt"]), t.get("pal_fmt"), t.get("pal_data"))  # type: ignore[arg-type]
++        return Image.frombytes("RGBA", size, bytes(px))
++
++    out_texs = [dict(t) for t in texs]
++    for idx in (0, 1):
++        t = out_texs[idx]
++        w, h, fmt = int(t["width"]), int(t["height"]), int(t["fmt"])
++        rgba = render_press_a_image(
++            w, h, lines, font_metrics, font_atlas_rgba, sprite(PRESS_A_WALK_FRAMES[idx]), sprite(PRESS_A_STRIPES), PRESS_A_PROGRESS[idx]
++        )
++        if preview_dir is not None:
++            preview_dir.mkdir(parents=True, exist_ok=True)
++            Image.frombytes("RGBA", (w, h), rgba).save(preview_dir / f"{preview_prefix}_{idx}.png")
++        t["data"] = _encode_tpl_pixels(rgba, w, h, fmt)
++    return _build_tpl(out_texs)
++
++
++BRRES_DAT_PAIRS: Tuple[Tuple[str, str], ...] = (
++    ("Item/love_letter.brres", "Item/love_letter.dat"),
++    ("Item/tonpy_item_p.brres", "Item/tonpy_item_p.dat"),
++    ("chibihouse/denti2con.brres", "chibihouse/denti2con.dat"),
++    ("kitchen/gus_up.brres", "kitchen/gus_up.dat"),
++    ("living/tako.brres", "living/tako.dat"),
++    ("how_to_chibirobo/cb_book.brres", "how_to_chibirobo/cb_book.dat"),
++)
++
++
++def _tex_data_size_mips(w: int, h: int, fmt: int, mip_count: int) -> int:
++    total = 0
++    for m in range(mip_count):
++        mw = max(1, w >> m)
++        mh = max(1, h >> m)
++        total += _tpl_data_size(mw, mh, fmt)
++    return total
++
++
++def parse_brres_textures(b: bytes) -> List[Dict[str, object]]:
++    """Parse TEX0 textures from a BRRES archive's Textures(NW4R) folder."""
++    if len(b) < 16 or b[:4] != b"bres":
++        raise ValueError("Invalid BRRES header")
++    hdr_size = struct.unpack_from(">H", b, 12)[0]
++    if b[hdr_size : hdr_size + 4] != b"root":
++        raise ValueError("Missing BRRES root section")
++
++    def read_idx_group(off: int) -> List[Tuple[str, int]]:
++        _, num_entries = struct.unpack_from(">II", b, off)
++        entries: List[Tuple[str, int]] = []
++        for i in range(1, num_entries + 1):
++            e_off = off + 8 + i * 16
++            _, _, _, _, name_off, data_off = struct.unpack_from(">HHHHII", b, e_off)
++            name_abs = off + name_off
++            name_end = b.index(b"\x00", name_abs)
++            name = b[name_abs:name_end].decode("ascii", "replace")
++            entries.append((name, off + data_off))
++        return entries
++
++    texs: List[Dict[str, object]] = []
++    for folder_name, folder_off in read_idx_group(hdr_size + 8):
++        if folder_name != "Textures(NW4R)":
++            continue
++        for tex_name, tex_off in read_idx_group(folder_off):
++            if b[tex_off : tex_off + 4] != b"TEX0":
++                raise ValueError(f"Expected TEX0 at 0x{tex_off:x}")
++            _, ver, _, data_off, _, has_pal, w, h, fmt, mip_cnt = struct.unpack_from(
++                ">IIiIiIHHII", b, tex_off + 4
++            )
++            if fmt not in TPL_FMT_SPECS:
++                continue
++            d_abs = tex_off + data_off
++            d_len = _tex_data_size_mips(w, h, fmt, mip_cnt)
++            lvl0_len = _tpl_data_size(w, h, fmt)
++            texs.append(
++                {
++                    "name": tex_name,
++                    "version": ver,
++                    "has_pal": has_pal,
++                    "width": w,
++                    "height": h,
++                    "fmt": fmt,
++                    "mip_count": mip_cnt,
++                    "data_abs_offset": d_abs,
++                    "data_len": d_len,
++                    "lvl0_len": lvl0_len,
++                    "data": b[d_abs : d_abs + d_len],
++                }
++            )
++    return texs
++
++
++def parse_dat_unique_images(b: bytes) -> List[Dict[str, object]]:
++    """Extract unique HSD_ImageDesc image entries from a GC .dat archive."""
++    if len(b) < 0x20:
++        raise ValueError("DAT archive too short")
++    _, data_size, reloc_cnt, _, _ = struct.unpack_from(">5I", b, 0)
++    reloc_table_off = 0x20 + data_size
++    if reloc_table_off + reloc_cnt * 4 > len(b):
++        raise ValueError("DAT relocation table out of bounds")
++    relocs = sorted(set(struct.unpack_from(f">{reloc_cnt}I", b, reloc_table_off)))
++    seen_ptrs = set()
++    images: List[Dict[str, object]] = []
++    for r in relocs:
++        if r + 0x18 > data_size:
++            continue
++        img_ptr, w, h, fmt, mipmap, min_lod, max_lod = struct.unpack_from(">IHHIIff", b, 0x20 + r)
++        if fmt not in TPL_FMT_SPECS or not (4 <= w <= 1024 and 4 <= h <= 1024):
++            continue
++        if mipmap not in (0, 1) or img_ptr >= data_size:
++            continue
++        if not (0.0 <= min_lod <= 10.0 and 0.0 <= max_lod <= 10.0):
++            continue
++        sz = _tpl_data_size(w, h, fmt)
++        if img_ptr + sz > data_size or img_ptr in seen_ptrs:
++            continue
++        seen_ptrs.add(img_ptr)
++        data = b[0x20 + img_ptr : 0x20 + img_ptr + sz]
++        images.append(
++            {
++                "reloc_off": r,
++                "img_ptr": img_ptr,
++                "width": w,
++                "height": h,
++                "fmt": fmt,
++                "mipmap": mipmap,
++                "data": data,
++                "md5": hashlib.md5(data).hexdigest(),
++            }
++        )
++    return images
++
++
++def _map_jp_to_target_dat_images(
++    jp_imgs: List[Dict[str, object]], tgt_imgs: List[Dict[str, object]]
++) -> Dict[int, int]:
++    """Map GC-JP unique image indices to GC-US/PAL indices via exact-hash anchors."""
++    jp_keys = [str(im["md5"]) for im in jp_imgs]
++    tgt_keys = [str(im["md5"]) for im in tgt_imgs]
++    sm = difflib.SequenceMatcher(None, jp_keys, tgt_keys, autojunk=False)
++    mapping: Dict[int, int] = {}
++    for tag, i1, i2, j1, j2 in sm.get_opcodes():
++        if tag == "equal":
++            for k in range(i2 - i1):
++                mapping[i1 + k] = j1 + k
++        elif tag == "replace":
++            # Match remaining items within the gap by (width, height, fmt) counts
++            by_sig_jp: Dict[Tuple[int, int, int], List[int]] = {}
++            by_sig_tgt: Dict[Tuple[int, int, int], List[int]] = {}
++            for ji in range(i1, i2):
++                im = jp_imgs[ji]
++                by_sig_jp.setdefault((int(im["width"]), int(im["height"]), int(im["fmt"])), []).append(ji)
++            for ti in range(j1, j2):
++                im = tgt_imgs[ti]
++                by_sig_tgt.setdefault((int(im["width"]), int(im["height"]), int(im["fmt"])), []).append(ti)
++            for sig, j_list in by_sig_jp.items():
++                t_list = by_sig_tgt.get(sig, [])
++                if len(j_list) == len(t_list):
++                    for ji, ti in zip(j_list, t_list):
++                        mapping[ji] = ti
++    return mapping
++
++
++def _mean_abs_rgba_diff(a: bytes, b: bytes) -> float:
++    return sum(abs(x - y) for x, y in zip(a, b)) / len(a)
++
++
++def _downsample_rgba_2x(rgba: bytes, w: int, h: int) -> Tuple[bytes, int, int]:
++    nw = max(1, w // 2)
++    nh = max(1, h // 2)
++    out = bytearray(nw * nh * 4)
++    for y in range(nh):
++        y0 = min(y * 2, h - 1)
++        y1 = min(y * 2 + 1, h - 1)
++        for x in range(nw):
++            x0 = min(x * 2, w - 1)
++            x1 = min(x * 2 + 1, w - 1)
++            i00 = (y0 * w + x0) * 4
++            i10 = (y0 * w + x1) * 4
++            i01 = (y1 * w + x0) * 4
++            i11 = (y1 * w + x1) * 4
++            dst = (y * nw + x) * 4
++            for c in range(4):
++                out[dst + c] = (rgba[i00 + c] + rgba[i10 + c] + rgba[i01 + c] + rgba[i11 + c] + 2) >> 2
++    return bytes(out), nw, nh
++
++
++def _encode_mip_tail(rgba0: bytes, w: int, h: int, fmt: int, mip_count: int) -> bytes:
++    out = bytearray()
++    cur_rgba, cur_w, cur_h = rgba0, w, h
++    for _ in range(1, mip_count):
++        cur_rgba, cur_w, cur_h = _downsample_rgba_2x(cur_rgba, cur_w, cur_h)
++        out.extend(_encode_tpl_pixels(cur_rgba, cur_w, cur_h, fmt))
++    return bytes(out)
++
++
++def _encode_with_mipmaps(rgba0: bytes, w: int, h: int, fmt: int, mip_count: int) -> bytes:
++    return _encode_tpl_pixels(rgba0, w, h, fmt) + _encode_mip_tail(rgba0, w, h, fmt, mip_count)
++
++
++def parse_dat_model_page_structure(b: bytes) -> Dict[str, object]:
++    """Extract JObj->TObj usage in model order and TexAnim imagetbl sequences from a GC .dat."""
++    if len(b) < 0x20:
++        raise ValueError("DAT archive too short")
++    _, data_size, reloc_cnt, root_cnt, _ = struct.unpack_from(">5I", b, 0)
++    reloc_table_off = 0x20 + data_size
++    if reloc_table_off + reloc_cnt * 4 > len(b):
++        raise ValueError("DAT relocation table out of bounds")
++    relocs = set(struct.unpack_from(f">{reloc_cnt}I", b, reloc_table_off))
++    imgs = parse_dat_unique_images(b)
++    ptr_to_uidx = {int(im["img_ptr"]): idx for idx, im in enumerate(imgs)}
++
++    def _read_imgdesc(off: int) -> Optional[Tuple[int, int, int, int]]:
++        if off == 0 or off + 0x18 > data_size:
++            return None
++        img_ptr, w, h, fmt, _, _, _ = struct.unpack_from(">IHHIIff", b, 0x20 + off)
++        if fmt not in TPL_FMT_SPECS or img_ptr not in ptr_to_uidx:
++            return None
++        return ptr_to_uidx[img_ptr], w, h, fmt
++
++    # 1. TexAnim imagetbl sequences (in file order)
++    texanims: List[List[int]] = []
++    seen_tbl_ptrs = set()
++    for r in sorted(relocs):
++        if r + 12 > data_size:
++            continue
++        tbl_ptr = struct.unpack_from(">I", b, 0x20 + r)[0]
++        if tbl_ptr == 0 or tbl_ptr in seen_tbl_ptrs or tbl_ptr + 4 > data_size or tbl_ptr not in relocs:
++            continue
++        n_img, n_tlut = struct.unpack_from(">HH", b, 0x20 + r + 8)
++        if not (2 <= n_img <= 32 and n_tlut <= 32) or tbl_ptr + n_img * 4 > data_size:
++            continue
++        first_desc = struct.unpack_from(">I", b, 0x20 + tbl_ptr)[0]
++        if _read_imgdesc(first_desc) is None:
++            continue
++        seq: List[int] = []
++        valid = True
++        for k in range(n_img):
++            doff = struct.unpack_from(">I", b, 0x20 + tbl_ptr + k * 4)[0]
++            res = _read_imgdesc(doff)
++            if res is None:
++                valid = False
++                break
++            seq.append(res[0])
++        if valid:
++            seen_tbl_ptrs.add(tbl_ptr)
++            texanims.append(seq)
++
++    # 2. Walk JObj -> DObj -> MObj -> TObj from scene_data if present
++    jobj_tobjs: List[Tuple[int, List[Tuple[int, int, int, int]]]] = []
++    root_off = reloc_table_off + reloc_cnt * 4
++    if root_cnt >= 1 and root_off + 8 <= len(b):
++        scene_off = struct.unpack_from(">I", b, root_off)[0]
++        if scene_off + 4 <= data_size:
++            models_ptr = struct.unpack_from(">I", b, 0x20 + scene_off)[0]
++            if 0 < models_ptr <= data_size - 4:
++                model_set_ptr = struct.unpack_from(">I", b, 0x20 + models_ptr)[0]
++                if 0 < model_set_ptr <= data_size - 4:
++                    jobj_root = struct.unpack_from(">I", b, 0x20 + model_set_ptr)[0]
++                    seen_j = set()
++
++                    def _walk(joff: int) -> None:
++                        if joff == 0 or joff in seen_j or joff + 0x14 > data_size:
++                            return
++                        seen_j.add(joff)
++                        _, _, child, nxt, u_ptr = struct.unpack_from(">5I", b, 0x20 + joff)
++                        d_ptr = u_ptr
++                        t_list: List[Tuple[int, int, int, int]] = []
++                        seen_d = set()
++                        while d_ptr and d_ptr not in seen_d and d_ptr + 0x10 <= data_size:
++                            seen_d.add(d_ptr)
++                            _, d_nxt, m_ptr, _ = struct.unpack_from(">4I", b, 0x20 + d_ptr)
++                            if m_ptr and m_ptr + 0x10 <= data_size:
++                                t_ptr = struct.unpack_from(">I", b, 0x20 + m_ptr + 0x08)[0]
++                                seen_t = set()
++                                while t_ptr and t_ptr not in seen_t and t_ptr + 0x50 <= data_size:
++                                    seen_t.add(t_ptr)
++                                    _, t_nxt, _, _ = struct.unpack_from(">4I", b, 0x20 + t_ptr)
++                                    img_desc = struct.unpack_from(">I", b, 0x20 + t_ptr + 0x4C)[0]
++                                    res = _read_imgdesc(img_desc)
++                                    if res is not None:
++                                        t_list.append(res)
++                                    t_ptr = t_nxt
++                            d_ptr = d_nxt
++                        if t_list:
++                            jobj_tobjs.append((joff, t_list))
++                        _walk(child)
++                        _walk(nxt)
++
++                    _walk(jobj_root)
++
++    return {"images": imgs, "texanims": texanims, "jobj_tobjs": jobj_tobjs}
++
++
++def _map_cb_book_by_structure(
++    w_texs: List[Dict[str, object]],
++    jp_struct: Dict[str, object],
++    tgt_struct: Dict[str, object],
++    max_mad: float = 15.0,
++) -> Tuple[Dict[str, Tuple[int, int]], List[Dict[str, object]]]:
++    """Map Wii cb_book.brres page textures to (jp_img_idx, tgt_img_idx) via .dat model structure."""
++    jp_imgs: List[Dict[str, object]] = jp_struct["images"]  # type: ignore[assignment]
++    tgt_imgs: List[Dict[str, object]] = tgt_struct["images"]  # type: ignore[assignment]
++    jp_anims: List[List[int]] = jp_struct["texanims"]  # type: ignore[assignment]
++    tgt_anims: List[List[int]] = tgt_struct["texanims"]  # type: ignore[assignment]
++    jp_jobjs: List[Tuple[int, List[Tuple[int, int, int, int]]]] = jp_struct["jobj_tobjs"]  # type: ignore[assignment]
++    tgt_jobjs: List[Tuple[int, List[Tuple[int, int, int, int]]]] = tgt_struct["jobj_tobjs"]  # type: ignore[assignment]
++
++    def _dedup_anims(anims: List[List[int]]) -> List[List[int]]:
++        seen_a = set()
++        out_a: List[List[int]] = []
++        for seq in anims:
++            key = tuple(seq)
++            if key not in seen_a:
++                seen_a.add(key)
++                out_a.append(seq)
++        return out_a
++
++    jp_u_anims = _dedup_anims(jp_anims)
++    tgt_u_anims = _dedup_anims(tgt_anims)
++
++    # Pair JP and Target TexAnims by (frame0_w, frame0_h, len)
++    by_name = {str(wt["name"]): wt for wt in w_texs}
++    mapping: Dict[str, Tuple[int, int]] = {}
++    extra_skipped: List[Dict[str, object]] = []
++
++    def _best_wii_prefix(seq: List[int]) -> Optional[str]:
++        f0 = jp_imgs[seq[0]]
++        fw, fh, ffmt = int(f0["width"]), int(f0["height"]), int(f0["fmt"])
++        f0_rgba = bytes(_decode_tpl_pixels(bytes(f0["data"]), fw, fh, ffmt))
++        best_p: Optional[Tuple[float, str]] = None
++        for prefix in ("page_L", "page_R"):
++            wt = by_name.get(f"{prefix}.1")
++            if wt is None or int(wt["width"]) != fw or int(wt["height"]) != fh:
++                continue
++            w_rgba = bytes(_decode_tpl_pixels(bytes(wt["data"])[: int(wt["lvl0_len"])], fw, fh, int(wt["fmt"])))
++            mad = _mean_abs_rgba_diff(w_rgba, f0_rgba)
++            if best_p is None or mad < best_p[0]:
++                best_p = (mad, prefix)
++        return best_p[1] if (best_p is not None and best_p[0] <= max_mad) else None
++
++    anim_prefix_imgs: Dict[str, Tuple[int, int]] = {}
++    used_tgt_anims = set()
++    for j_seq in jp_u_anims:
++        j0 = jp_imgs[j_seq[0]]
++        sig = (int(j0["width"]), int(j0["height"]), len(j_seq))
++        t_seq: Optional[List[int]] = None
++        for ti_a, cand in enumerate(tgt_u_anims):
++            if ti_a in used_tgt_anims:
++                continue
++            t0 = tgt_imgs[cand[0]]
++            if (int(t0["width"]), int(t0["height"]), len(cand)) == sig:
++                t_seq = cand
++                used_tgt_anims.add(ti_a)
++                break
++        if t_seq is None:
++            continue
++        prefix = _best_wii_prefix(j_seq)
++        if prefix is None:
++            continue
++        anim_prefix_imgs[prefix] = (j_seq[0], t_seq[0])
++        for idx, (ji, ti) in enumerate(zip(j_seq, t_seq), start=1):
++            tname = f"{prefix}.{idx}"
++            if tname in by_name:
++                mapping[tname] = (ji, ti)
++
++    # Static .0 pages via JObj model order:
++    # page_R.0 sits on the JObj containing page_R.1 (e.g. JObj 0.0.2.0);
++    # page_L.0 sits on the JObj group associated with page_L.1 (not the page_R JObj).
++    r1_j = anim_prefix_imgs.get("page_R", (-1, -1))
++    l1_j = anim_prefix_imgs.get("page_L", (-1, -1))
++
++    def _find_static_pages(
++        jobjs: List[Tuple[int, List[Tuple[int, int, int, int]]]],
++        r1_img: int,
++        l1_img: int,
++    ) -> Tuple[List[int], List[int]]:
++        r0_imgs: List[int] = []
++        l0_imgs: List[int] = []
++        for _, tlist in jobjs:
++            uids = [u for u, _, _, _ in tlist]
++            s128 = [u for u, w, h, _ in tlist if w == 128 and h == 128 and u != r1_img]
++            if r1_img in uids:
++                r0_imgs.extend(s128)
++            elif l1_img not in uids and s128:
++                l0_imgs.extend(s128)
++        return l0_imgs, r0_imgs
++
++    jp_l0, jp_r0 = _find_static_pages(jp_jobjs, r1_j[0], l1_j[0])
++    tgt_l0, tgt_r0 = _find_static_pages(tgt_jobjs, r1_j[1], l1_j[1])
++
++    l0_pair: Optional[Tuple[int, int]] = (jp_l0[0], tgt_l0[0]) if (jp_l0 and tgt_l0) else None
++    r0_pair: Optional[Tuple[int, int]] = (jp_r0[0], tgt_r0[0]) if (jp_r0 and tgt_r0) else None
++
++    if l0_pair is not None and r0_pair is not None and l0_pair[1] == r0_pair[1]:
++        # Only allow identical target image on both sides if target .dat uses it on both sides
++        if not (tgt_l0 and tgt_r0 and tgt_l0[0] == tgt_r0[0]):
++            r0_pair = None
++
++    if "page_L.0" in by_name and l0_pair is not None:
++        mapping["page_L.0"] = l0_pair
++    if "page_R.0" in by_name and r0_pair is not None:
++        mapping["page_R.0"] = r0_pair
++
++    # Report any extra distinct 128x128 target images on L/R that have no Wii texture slot
++    placed_tgt = {ti for _, ti in mapping.values()}
++    for side, extra_list in (("page_L", tgt_l0), ("page_R", tgt_r0)):
++        seen_ex = set()
++        for ti in extra_list:
++            if ti not in placed_tgt and ti not in seen_ex:
++                seen_ex.add(ti)
++                extra_skipped.append({"name": f"{side}.extra", "reason": "no_wii_slot", "target_image": ti})
++
++    return mapping, extra_skipped
++
++
++def _render_cb_book_preview(
++    preview_path: Path,
++    pages: Sequence[Tuple[str, str, int, int, bytes]],
++) -> None:
++    """Render cb_book pages in order (page_L.0..7, page_R.0..7) to a grid PNG."""
++    if not pages:
++        return
++    cols = 4
++    cell_w, cell_h = 276, 300
++    rows = (len(pages) + cols - 1) // cols
++    canvas = Image.new("RGBA", (cols * cell_w, rows * cell_h), (36, 36, 36, 255))
++    draw = ImageDraw.Draw(canvas)
++    for idx, (tname, info, pw, ph, rgba) in enumerate(pages):
++        r, c = divmod(idx, cols)
++        x0, y0 = c * cell_w + 10, r * cell_h + 10
++        draw.text((x0, y0), f"{tname} ({info})", fill=(240, 240, 240, 255))
++        im = Image.frombytes("RGBA", (pw, ph), rgba)
++        if pw > 256 or ph > 256:
++            im = im.resize((256, 256), Image.Resampling.BILINEAR)
++        canvas.paste(im, (x0, y0 + 24), im)
++    preview_path.parent.mkdir(parents=True, exist_ok=True)
++    canvas.save(preview_path)
++
++
++def replace_brres_textures(
++    wii_brres: bytes,
++    jp_dat: bytes,
++    tgt_dat: bytes,
++    max_mad: float = 15.0,
++    structural_book: bool = False,
++    preview_path: Optional[Path] = None,
++) -> Tuple[bytes, Dict[str, object]]:
++    """Replace text textures in a Wii BRRES using GC-JP -> GC-target image mapping."""
++    w_texs = parse_brres_textures(wii_brres)
++    jp_imgs = parse_dat_unique_images(jp_dat)
++    tgt_imgs = parse_dat_unique_images(tgt_dat)
++
++    struct_map: Dict[str, Tuple[int, int]] = {}
++    skipped: List[Dict[str, object]] = []
++    if structural_book:
++        jp_struct = parse_dat_model_page_structure(jp_dat)
++        tgt_struct = parse_dat_model_page_structure(tgt_dat)
++        struct_map, extra_sk = _map_cb_book_by_structure(w_texs, jp_struct, tgt_struct, max_mad=max_mad)
++        skipped.extend(extra_sk)
++        jp_to_tgt: Dict[int, int] = {}
++    else:
++        jp_to_tgt = _map_jp_to_target_dat_images(jp_imgs, tgt_imgs)
++
++    jp_rgba_cache: Dict[int, bytes] = {}
++    out = bytearray(wii_brres)
++    replaced: List[str] = []
++    reencoded: List[str] = []
++    unchanged: List[str] = []
++    book_mapping_rows: List[Dict[str, object]] = []
++    preview_pages: List[Tuple[str, str, int, int, bytes]] = []
++
++    for wt in w_texs:
++        tname = str(wt["name"])
++        w = int(wt["width"])
++        h = int(wt["height"])
++        w_fmt = int(wt["fmt"])
++        mips = int(wt["mip_count"])
++        lvl0_len = int(wt["lvl0_len"])
++        w_lvl0 = bytes(wt["data"])[:lvl0_len]
++
++        matched_ji: Optional[int] = None
++        ti_override: Optional[int] = None
++        if structural_book:
++            if tname in struct_map:
++                matched_ji, ti_override = struct_map[tname]
++            else:
++                if tname.startswith("page_"):
++                    skipped.append({"name": tname, "reason": "no_structural_match"})
++                else:
++                    unchanged.append(tname)
++                continue
++        else:
++            # Match Wii TEX0 to GC-JP image (exact bytes first, then decoded pixel MAD)
++            for ji, jim in enumerate(jp_imgs):
++                if int(jim["width"]) == w and int(jim["height"]) == h and int(jim["fmt"]) == w_fmt:
++                    if bytes(jim["data"]) == w_lvl0:
++                        matched_ji = ji
++                        break
++
++            if matched_ji is None:
++                if w_fmt not in TPL_FMT_SPECS or w_fmt in (8, 9):
++                    skipped.append({"name": tname, "reason": "unsupported_wii_format", "fmt": w_fmt})
++                    continue
++                w_rgba = bytes(_decode_tpl_pixels(w_lvl0, w, h, w_fmt))
++                best: Optional[Tuple[float, int]] = None
++                for ji, jim in enumerate(jp_imgs):
++                    if int(jim["width"]) != w or int(jim["height"]) != h:
++                        continue
++                    j_fmt = int(jim["fmt"])
++                    if j_fmt not in TPL_FMT_SPECS or j_fmt in (8, 9):
++                        continue
++                    if ji not in jp_rgba_cache:
++                        jp_rgba_cache[ji] = bytes(_decode_tpl_pixels(bytes(jim["data"]), w, h, j_fmt))
++                    mad = _mean_abs_rgba_diff(w_rgba, jp_rgba_cache[ji])
++                    if best is None or mad < best[0]:
++                        best = (mad, ji)
++                if best is not None and best[0] <= max_mad:
++                    matched_ji = best[1]
++
++        if matched_ji is None:
++            skipped.append({"name": tname, "reason": "no_jp_match", "width": w, "height": h, "fmt": w_fmt})
++            continue
++
++        if ti_override is None:
++            if matched_ji not in jp_to_tgt:
++                skipped.append({"name": tname, "reason": "no_target_match", "jp_index": matched_ji})
++                continue
++            ti = jp_to_tgt[matched_ji]
++        else:
++            ti = ti_override
++
++        jim = jp_imgs[matched_ji]
++        tim = tgt_imgs[ti]
++        if structural_book:
++            book_mapping_rows.append({"wii_name": tname, "jp_image": matched_ji, "target_image": ti})
++
++        # Only replace textures that differ from GC-JP (i.e. carry localized text)
++        if bytes(tim["data"]) == bytes(jim["data"]):
++            unchanged.append(tname)
++            if structural_book and preview_path is not None:
++                preview_pages.append((tname, f"JP{matched_ji}->US{ti} same", w, h, bytes(_decode_tpl_pixels(w_lvl0, w, h, w_fmt))))
++            continue
++
++        t_fmt = int(tim["fmt"])
++        if int(tim["width"]) != w or int(tim["height"]) != h:
++            skipped.append({"name": tname, "reason": "dimension_mismatch"})
++            if structural_book and preview_path is not None:
++                preview_pages.append((tname, f"JP{matched_ji}->US{ti} dim_skip", w, h, bytes(_decode_tpl_pixels(w_lvl0, w, h, w_fmt))))
++            continue
++
++        if w_fmt == t_fmt:
++            if mips == 1:
++                new_data = bytes(tim["data"])
++            else:
++                t_rgba = bytes(_decode_tpl_pixels(bytes(tim["data"]), w, h, t_fmt))
++                new_data = bytes(tim["data"]) + _encode_mip_tail(t_rgba, w, h, w_fmt, mips)
++            replaced.append(tname)
++        else:
++            if t_fmt not in TPL_FMT_SPECS or t_fmt in (8, 9) or w_fmt not in (0, 1, 2, 3, 4, 5, 6, 14):
++                skipped.append(
++                    {"name": tname, "reason": "unsupported_format_conversion", "wii_fmt": w_fmt, "gc_fmt": t_fmt}
++                )
++                continue
++            t_rgba = bytes(_decode_tpl_pixels(bytes(tim["data"]), w, h, t_fmt))
++            new_data = _encode_with_mipmaps(t_rgba, w, h, w_fmt, mips)
++            reencoded.append(tname)
++
++        d_abs = int(wt["data_abs_offset"])
++        d_len = int(wt["data_len"])
++        if len(new_data) != d_len:
++            skipped.append({"name": tname, "reason": "encoded_size_mismatch", "expected": d_len, "actual": len(new_data)})
++            continue
++        out[d_abs : d_abs + d_len] = new_data
++        if structural_book and preview_path is not None:
++            res_rgba = bytes(_decode_tpl_pixels(new_data[:lvl0_len], w, h, w_fmt))
++            preview_pages.append((tname, f"JP{matched_ji}->US{ti}", w, h, res_rgba))
++
++    if preview_path is not None and preview_pages:
++        _render_cb_book_preview(preview_path, preview_pages)
++
++    res_dict: Dict[str, object] = {
++        "replaced": replaced,
++        "reencoded": reencoded,
++        "unchanged": unchanged,
++        "skipped": skipped,
++    }
++    if structural_book:
++        res_dict["book_mapping"] = book_mapping_rows
++    return bytes(out), res_dict
++
++
 +def _run_dtk(dtk: Path, args: Sequence[str]) -> str:
 +    res = subprocess.run([str(dtk), *args], capture_output=True, text=True)
 +    if res.returncode != 0:
@@ -4247,6 +5633,11 @@ index 0000000000000000000000000000000000000000..4d48af7d6ebd413e61cc28d739ff7d27
 +
 +    _run_dtk(dtk, ["vfs", "cp", f"{wii_disc}:files/bin", str(paths["wii_bin"])])
 +    _run_dtk(dtk, ["vfs", "cp", f"{wii_disc}:files/tpl", str(paths["wii_tpl"])])
++    if _dtk_exists(dtk, f"{wii_disc}:sys/main.dol"):
++        wii_dol = work_dir / "wii" / "sys" / "main.dol"
++        wii_dol.parent.mkdir(parents=True, exist_ok=True)
++        _run_dtk(dtk, ["vfs", "cp", f"{wii_disc}:sys/main.dol", str(wii_dol)])
++        paths["wii_dol"] = wii_dol
 +    _run_dtk(dtk, ["vfs", "cp", f"{us_disc}:files/qp.bin:bin/e", str(paths["us_bin_e"])])
 +    _run_dtk(dtk, ["vfs", "cp", f"{us_disc}:files/qp.bin:tpl", str(paths["us_tpl"])])
 +    for sub in ("e", "g", "f", "s", "i"):
@@ -4255,6 +5646,27 @@ index 0000000000000000000000000000000000000000..4d48af7d6ebd413e61cc28d739ff7d27
 +        _run_dtk(dtk, ["vfs", "cp", f"{pal_disc}:files/qp.bin:bin/{sub}", str(dst)])
 +    _run_dtk(dtk, ["vfs", "cp", f"{pal_disc}:files/qp.bin:tpl", str(paths["pal_tpl"])])
 +
++    # Extract BRRES / DAT pairs for texture replacement
++    for disc_key, base in (
++        ("wii_brres", work_dir / "wii" / "brres"),
++        ("us_dat", work_dir / "us" / "dat"),
++        ("pal_dat", work_dir / "pal" / "dat"),
++    ):
++        if base.exists():
++            shutil.rmtree(base)
++        base.mkdir(parents=True, exist_ok=True)
++        paths[disc_key] = base
++    for br_rel, dat_rel in BRRES_DAT_PAIRS:
++        wii_dst = paths["wii_brres"] / br_rel
++        wii_dst.parent.mkdir(parents=True, exist_ok=True)
++        _run_dtk(dtk, ["vfs", "cp", f"{wii_disc}:files/{br_rel}", str(wii_dst)])
++        us_dst = paths["us_dat"] / dat_rel
++        us_dst.parent.mkdir(parents=True, exist_ok=True)
++        _run_dtk(dtk, ["vfs", "cp", f"{us_disc}:files/qp.bin:{dat_rel}", str(us_dst)])
++        pal_dst = paths["pal_dat"] / dat_rel
++        pal_dst.parent.mkdir(parents=True, exist_ok=True)
++        _run_dtk(dtk, ["vfs", "cp", f"{pal_disc}:files/qp.bin:{dat_rel}", str(pal_dst)])
++
 +    if jp_disc is not None:
 +        jp_bin = work_dir / "jp" / "bin"
 +        if jp_bin.exists():
@@ -4262,6 +5674,23 @@ index 0000000000000000000000000000000000000000..4d48af7d6ebd413e61cc28d739ff7d27
 +        jp_bin.mkdir(parents=True, exist_ok=True)
 +        _run_dtk(dtk, ["vfs", "cp", f"{jp_disc}:files/qp.bin:bin", str(jp_bin)])
 +        paths["jp_bin"] = jp_bin
++
++        jp_dat = work_dir / "jp" / "dat"
++        if jp_dat.exists():
++            shutil.rmtree(jp_dat)
++        jp_dat.mkdir(parents=True, exist_ok=True)
++        for _, dat_rel in BRRES_DAT_PAIRS:
++            dst = jp_dat / dat_rel
++            dst.parent.mkdir(parents=True, exist_ok=True)
++            _run_dtk(dtk, ["vfs", "cp", f"{jp_disc}:files/qp.bin:{dat_rel}", str(dst)])
++        paths["jp_dat"] = jp_dat
++
++        jp_tpl = work_dir / "jp" / "tpl"
++        if jp_tpl.exists():
++            shutil.rmtree(jp_tpl)
++        jp_tpl.mkdir(parents=True, exist_ok=True)
++        _run_dtk(dtk, ["vfs", "cp", f"{jp_disc}:files/qp.bin:tpl", str(jp_tpl)])
++        paths["jp_tpl"] = jp_tpl
 +    return paths
 +
 +
@@ -4320,6 +5749,15 @@ index 0000000000000000000000000000000000000000..4d48af7d6ebd413e61cc28d739ff7d27
 +    wii_bins = sorted(extracted["wii_bin"].glob("*.bin"))
 +    wii_tpls = sorted(extracted["wii_tpl"].glob("*.tpl"))
 +
++    press_a_path = Path(__file__).resolve().parent.parent / "mods" / "wii-localization" / "press_a.json"
++    press_a: Optional[Dict[str, List[str]]] = None
++    dol_font: Optional[Tuple[List[Tuple[int, int, int]], bytes]] = None
++    if press_a_path.exists() and "wii_dol" in extracted:
++        press_a = json.loads(press_a_path.read_text(encoding="utf-8"))
++        dol_font = load_dol_single_byte_font(extracted["wii_dol"].read_bytes())
++    misc_tpl = extracted["wii_tpl"] / "misc.tpl"
++    preview_dir = out_dir.parent / "preview"
++
 +    report: Dict[str, object] = {
 +        "jp_reference_used": jp_disc is not None,
 +        "font": {
@@ -4341,6 +5779,7 @@ index 0000000000000000000000000000000000000000..4d48af7d6ebd413e61cc28d739ff7d27
 +        tgt_bin_dir = extracted["us_bin_e"] if disc_key == "us" else (extracted["pal_bin"] / bin_sub)
 +        tgt_tpl_dir = extracted["us_tpl"] if disc_key == "us" else extracted["pal_tpl"]
 +        jp_bin_dir = extracted.get("jp_bin")
++        jp_tpl_dir = extracted.get("jp_tpl")
 +
 +        transferred_files: List[str] = []
 +        identical_files: List[str] = []
@@ -4388,17 +5827,48 @@ index 0000000000000000000000000000000000000000..4d48af7d6ebd413e61cc28d739ff7d27
 +            else:
 +                identical_files.append(rel_path)
 +
++        tpl_details: Dict[str, object] = {}
 +        for wii_tpl_path in wii_tpls:
 +            name = wii_tpl_path.name
 +            rel_path = f"tpl/{name}"
++            wii_b = wii_tpl_path.read_bytes()
++
++            if name in ("logo.tpl", "logow.tpl") and press_a is not None and dol_font is not None:
++                rendered_b = press_a_tpl(
++                    wii_b, misc_tpl.read_bytes(), press_a[code], dol_font[0], dol_font[1],
++                    preview_dir=preview_dir, preview_prefix=f"{code}_{name[:-4]}",
++                )
++                dst = lang_out / "tpl" / name
++                dst.parent.mkdir(parents=True, exist_ok=True)
++                dst.write_bytes(rendered_b)
++                written_files.append(dst)
++                transferred_files.append(rel_path)
++                tpl_details[rel_path] = {"reason": "press_a_rendered", "textures": [0, 1]}
++                continue
++
 +            tgt_name = _tpl_counterpart_name(name, tpl_suffix)
 +            tgt_tpl_path = tgt_tpl_dir / tgt_name
 +            if not tgt_tpl_path.exists():
 +                wii_only_files.append(rel_path)
 +                continue
-+            wii_b = wii_tpl_path.read_bytes()
 +            tgt_b = tgt_tpl_path.read_bytes()
 +            converted_b, tpl_info = convert_tpl_to_wii_format(wii_b, tgt_b)
++            if converted_b is None and jp_tpl_dir is not None:
++                jp_tpl_path = jp_tpl_dir / name
++                if jp_tpl_path.exists():
++                    tex_b, tex_info = convert_tpl_textures_by_jp(
++                        wii_b,
++                        jp_tpl_path.read_bytes(),
++                        tgt_b,
++                        text_wii_indices=MISC_TPL_TEXT_DECISIONS if name == "misc.tpl" else None,
++                        preview_path=(preview_dir / f"misc_{code}.png") if (preview_dir is not None and name == "misc.tpl") else None,
++                    )
++                    tpl_details[rel_path] = tex_info
++                    if tex_b != wii_b:
++                        converted_b = tex_b
++                    else:
++                        non_transferable_files.append({"path": rel_path, **tpl_info, "texturewise": tex_info})
++                        continue
 +            if converted_b is None:
 +                non_transferable_files.append({"path": rel_path, **tpl_info})
 +                continue
@@ -4411,6 +5881,34 @@ index 0000000000000000000000000000000000000000..4d48af7d6ebd413e61cc28d739ff7d27
 +            written_files.append(dst)
 +            transferred_files.append(rel_path)
 +
++        tgt_dat_dir = extracted["us_dat"] if disc_key == "us" else extracted["pal_dat"]
++        jp_dat_dir = extracted.get("jp_dat")
++        brres_details: Dict[str, object] = {}
++        for br_rel, dat_rel in BRRES_DAT_PAIRS:
++            wii_br_path = extracted["wii_brres"] / br_rel
++            tgt_dat_path = tgt_dat_dir / dat_rel
++            jp_dat_path = (jp_dat_dir / dat_rel) if jp_dat_dir is not None else None
++            if jp_dat_path is None or not jp_dat_path.exists():
++                non_transferable_files.append({"path": br_rel, "reason": "jp_reference_required"})
++                continue
++            is_book = br_rel == "how_to_chibirobo/cb_book.brres"
++            new_br, br_stats = replace_brres_textures(
++                wii_br_path.read_bytes(),
++                jp_dat_path.read_bytes(),
++                tgt_dat_path.read_bytes(),
++                structural_book=is_book,
++                preview_path=(preview_dir / f"cb_book_{code}.png") if (preview_dir is not None and is_book) else None,
++            )
++            brres_details[br_rel] = br_stats
++            if new_br != wii_br_path.read_bytes():
++                dst = lang_out / br_rel
++                dst.parent.mkdir(parents=True, exist_ok=True)
++                dst.write_bytes(new_br)
++                written_files.append(dst)
++                transferred_files.append(br_rel)
++            else:
++                identical_files.append(br_rel)
++
 +        report["languages"][code] = {
 +            "transferred_files": transferred_files,
 +            "identical_files": identical_files,
@@ -4420,7 +5918,23 @@ index 0000000000000000000000000000000000000000..4d48af7d6ebd413e61cc28d739ff7d27
 +            "translated_messages": translated_msgs,
 +            "untranslated_messages": untranslated_msgs,
 +            "bin_details": per_bin_details,
++            "tpl_details": tpl_details,
++            "brres_details": brres_details,
 +        }
++
++    # Japanese keeps the disc's own files, but for the first screen
++    ja_out = out_dir / "lang" / "ja"
++    if ja_out.exists():
++        shutil.rmtree(ja_out)
++    (ja_out / "tpl").mkdir(parents=True)
++    if press_a is not None and dol_font is not None:
++        for name in ("logo.tpl", "logow.tpl"):
++            dst = ja_out / "tpl" / name
++            dst.write_bytes(
++                press_a_tpl((extracted["wii_tpl"] / name).read_bytes(), misc_tpl.read_bytes(), press_a["ja"], dol_font[0], dol_font[1],
++                            preview_dir=preview_dir, preview_prefix=f"ja_{name[:-4]}")
++            )
++            written_files.append(dst)
 +
 +    report_path = out_dir / "report.json"
 +    report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
@@ -4466,7 +5980,7 @@ index 0000000000000000000000000000000000000000..4d48af7d6ebd413e61cc28d739ff7d27
 +    raise SystemExit(main())
 diff --git a/tools/wii_lang_install.py b/tools/wii_lang_install.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..6a8a4e9a097e5812edae4364093b72820b9fb379
+index 00000000..6a8a4e9a
 --- /dev/null
 +++ b/tools/wii_lang_install.py
 @@ -0,0 +1,35 @@
@@ -4507,7 +6021,7 @@ index 0000000000000000000000000000000000000000..6a8a4e9a097e5812edae4364093b7282
 +    install(Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3:] or ("en", "de", "fr", "es", "it"))
 diff --git a/tools/wii_locale.py b/tools/wii_locale.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..529f2d3c3ec71171e79655ae8b42b2caa5d9ec15
+index 00000000..529f2d3c
 --- /dev/null
 +++ b/tools/wii_locale.py
 @@ -0,0 +1,184 @@
@@ -4697,7 +6211,7 @@ index 0000000000000000000000000000000000000000..529f2d3c3ec71171e79655ae8b42b2ca
 +    write_opening_banner(args.disc, args.dtk, args.translations, args.locale, args.output)
 diff --git a/tools/wii_stage_names.py b/tools/wii_stage_names.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..192fef492c8e2a58096cb5bd144941d76afafdf7
+index 00000000..192fef49
 --- /dev/null
 +++ b/tools/wii_stage_names.py
 @@ -0,0 +1,174 @@
@@ -4877,7 +6391,7 @@ index 0000000000000000000000000000000000000000..192fef492c8e2a58096cb5bd144941d7
 +    main()
 diff --git a/tools/wii_text_map.py b/tools/wii_text_map.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..432a19502cd091e1c73ee9a600997bb859a11521
+index 00000000..432a1950
 --- /dev/null
 +++ b/tools/wii_text_map.py
 @@ -0,0 +1,122 @@

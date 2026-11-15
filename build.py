@@ -1,8 +1,9 @@
 """Build the Chibi-Robo Wii mod: the clean decomp in decomp/ (a git submodule) plus patches/*.patch.
 
-The patched copy is a git worktree of the submodule's commit at build/decomp. Options go to its
-configure.py: --gcncon, --langpack <locale|global>, --iso, --fanpatch <folder>. Put your own discs
-into decomp/orig/<ID>/ first (R24J01, and GGTE01 and GGTP01 for --langpack).
+There are no options: one build with everything the mod has (all languages, chosen by the console's language;
+the controls picked by the first A press), written as a disc image. Put your own disc images into
+decomp/orig/<ID>/ first: R24J01, and GGTE01, GGTP01 and GGTJ01_01, which the languages are made from. The patched
+copy of the decomp is a git worktree of the submodule's commit at build/decomp.
 """
 
 import subprocess
@@ -42,9 +43,12 @@ def link_discs() -> None:
 
 
 def main() -> None:
+    if len(sys.argv) > 1:
+        sys.exit(__doc__)
     prepare()
     link_discs()
-    subprocess.run([sys.executable, "configure.py", "--version", "R24J01", *sys.argv[1:]], cwd=WORK, check=True)
+    subprocess.run([sys.executable, "configure.py", "--version", "R24J01", "--gcncon", "--langpack", "global", "--iso"],
+                   cwd=WORK, check=True)
     subprocess.run(["ninja"], cwd=WORK, check=True)
 
 

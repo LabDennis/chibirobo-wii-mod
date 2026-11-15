@@ -90,7 +90,7 @@ index 6453d912..aa1c589d 100644
  
  [Credits and license notices](NOTICE)
 diff --git a/configure.py b/configure.py
-index a3e9356b..146fec0b 100644
+index a6cb858a..c96bcadf 100644
 --- a/configure.py
 +++ b/configure.py
 @@ -13,9 +13,11 @@
@@ -280,7 +280,7 @@ index a3e9356b..146fec0b 100644
                         extra_cflags=["-Cpp_exceptions on", "-ipa file"]),
                  Object(Equivalent, "game/wii/atcmenuselection.cpp"),
                  # the whole file, 0x800AAD1C-0x800AC07C. GC/3.0a3 to 3.0a5 reproduce it; 3.0a5.2 puts the
-@@ -1207,20 +1306,20 @@ if wii:
+@@ -1209,21 +1308,21 @@ if wii:
                  # no auto-inlining of the small file functions: under -inline auto the
                  # compiler inlines OpenPath/GetResult/ReadAsync into their callers where
                  # retail keeps them as calls
@@ -300,11 +300,13 @@ index a3e9356b..146fec0b 100644
                  # into Update (no bl, retail 0x802B2528), with its standalone copy at its
                  # own address (retail 0x802B1D84)
 -                Object(Equivalent, "game/wii/cpad.cpp", mw_version="GC/3.0a5", extra_cflags=["-Cpp_exceptions on", "-ipa file", "-inline noauto"]),
+-                Object(Equivalent, "game/wii/cpadact.cpp", mw_version="GC/3.0a5", extra_cflags=["-Cpp_exceptions on", "-ipa file"]),
 +                Object(Equivalent or args.wii_gamecube_pad, "game/wii/cpad.cpp", mw_version="GC/3.0a5", extra_cflags=["-Cpp_exceptions on", "-ipa file", "-inline noauto"]),
-                 Object(Equivalent, "game/wii/cpadact.cpp", mw_version="GC/3.0a5", extra_cflags=["-Cpp_exceptions on", "-ipa file"]),
++                Object(Equivalent or args.wii_gamecube_pad, "game/wii/cpadact.cpp", mw_version="GC/3.0a5", extra_cflags=["-Cpp_exceptions on", "-ipa file"]),
                  Object(Matching, "game/wii/nandfile.cpp", extra_cflags=["-Cpp_exceptions on"]),
                  # retail has no call to StartWiiSaveJob (declared inline, inlined into its
-@@ -1455,10 +1554,110 @@ def append_treemap_step(config: ProjectConfig) -> None:
+                 # callers) while BuildWiiSaveBanner and CheckWiiSaveBanner are reached via
+@@ -1595,10 +1694,110 @@ def append_treemap_step(config: ProjectConfig) -> None:
          )
  
  
@@ -1556,7 +1558,7 @@ index 00000000..4486836e
 +  }
 +]
 diff --git a/src/game/globalresources.cpp b/src/game/globalresources.cpp
-index 0bdb4d14..1460cccd 100644
+index 6fec3214..f97fd8d8 100644
 --- a/src/game/globalresources.cpp
 +++ b/src/game/globalresources.cpp
 @@ -9,6 +9,47 @@
@@ -1647,7 +1649,7 @@ index 0bdb4d14..1460cccd 100644
  	return gJapaneseInterfaceText[index];
  #else
  	return gInterfaceTextByLanguage[gGame.mLanguage][index];
-@@ -510,8 +573,12 @@ extern "C" BOOL IsGlobalDataLoaded()
+@@ -515,8 +578,12 @@ extern "C" BOOL IsGlobalDataLoaded()
   */
  extern "C" BOOL LoadGlobalResourceData()
  {
@@ -1745,12 +1747,12 @@ index 9e4fa84a..f44e12a2 100644
  	if (result < 0) {
  		if (mInArchive) {
 diff --git a/src/game/wii/cpad.cpp b/src/game/wii/cpad.cpp
-index 578669ef..1ac7ea31 100644
+index 4791ff67..eec1c0e4 100644
 --- a/src/game/wii/cpad.cpp
 +++ b/src/game/wii/cpad.cpp
-@@ -59,6 +59,15 @@ static BOOL (CPadOne::*sGameCubePadCheck)() const = &CPadOne::IsGameCubePadActiv
- 
- enum { RumbleEnabled = 1, RumbleRunning = 2, RumblePaused = 4 };
+@@ -57,6 +57,15 @@ static WiiStickRange sStickRanges[2];
+ static WiiRawSample sRawSamples[16];
+ static BOOL (CPadOne::*sGameCubePadCheck)() const = &CPadOne::IsGameCubePadActive;
  
 +#if defined(WII_GAMECUBE_PAD)
 +#include "game/wii/cgame.h"
@@ -1764,7 +1766,7 @@ index 578669ef..1ac7ea31 100644
  // Hardware masks returned by KPAD for the Wii Remote and its extensions.
  enum {
  	WPAD_BUTTON_LEFT  = 0x0001,
-@@ -241,6 +250,16 @@ void CPadOne::Update(const PADStatus* status, s32 frames)
+@@ -236,6 +245,16 @@ void CPadOne::Update(const PADStatus* status, s32 frames)
  	}
  	mProbeResult = probe;
  	mDeviceType  = device;
@@ -1781,7 +1783,7 @@ index 578669ef..1ac7ea31 100644
  
  	u64 buttons = 0;
  	u32 claimed = 0;
-@@ -916,6 +935,11 @@ PADStatus gWiiGameCubePads[4];
+@@ -880,6 +899,11 @@ PADStatus gWiiGameCubePads[4];
  
  void CPadEx::Init(u8 inputMask)
  {
@@ -1793,7 +1795,7 @@ index 578669ef..1ac7ea31 100644
  	mInputMask = inputMask;
  	if (mInputMask & InputGameCube) {
  		PADInit();
-@@ -968,6 +992,30 @@ void CPadEx::Update(s32 frames)
+@@ -932,6 +956,30 @@ void CPadEx::Update(s32 frames)
  	for (u8 port = 0; port < 4; ++port) {
  		gWiiPads[port].Update(&gWiiGameCubePads[port], frames);
  	}
@@ -1824,6 +1826,37 @@ index 578669ef..1ac7ea31 100644
  }
  
  void CPadEx::SetMainStickRange(f32 inner, f32 outer)
+diff --git a/src/game/wii/cpadact.cpp b/src/game/wii/cpadact.cpp
+index 005b5906..5e5f5193 100644
+--- a/src/game/wii/cpadact.cpp
++++ b/src/game/wii/cpadact.cpp
+@@ -299,6 +299,26 @@ void CPadAct::Update(u32 frames)
+ 	mButton                                                               = pad.mButton;
+ 	mDirButton                                                            = pad.mDirButton;
+ 	mTrigger                                                              = pad.mTrigger;
++#if defined(WII_GAMECUBE_PAD)
++	// mod: the cameras read the Wii Remote's Control Pad from these two words, not from the actions, and nothing
++	// in the game reads the C-stick. With a GameCube controller the C-stick stands in for the Control Pad here
++	// only: left and right turn the camera, up changes the zoom, a push down puts it behind Chibi-Robo (the
++	// cameras take a short press of down for that and a long one for dragging with the pointer)
++	if (pad.IsGameCubePadActive()) {
++		if (pad.mButton & (1ULL << GameCubeSubStick)) {
++			mButton |= 1ULL << RemoteLeft;
++		}
++		if (pad.mButton & (1ULL << (GameCubeSubStick + 1))) {
++			mButton |= 1ULL << RemoteRight;
++		}
++		if (pad.mTrigger & (1ULL << (GameCubeSubStick + 3))) {
++			mTrigger |= 1ULL << RemoteUp;
++		}
++		if (pad.mTrigger & (1ULL << (GameCubeSubStick + 2))) {
++			mButton |= 1ULL << RemoteDown;
++		}
++	}
++#endif
+ 	mDirTrigger                                                           = pad.mDirTrigger;
+ 	mRepeat                                                               = pad.mRepeat;
+ 	mDirRepeat                                                            = pad.mDirRepeat;
 diff --git a/src/game/wii/homemenu.cpp b/src/game/wii/homemenu.cpp
 index a55e29fb..3adcee58 100644
 --- a/src/game/wii/homemenu.cpp

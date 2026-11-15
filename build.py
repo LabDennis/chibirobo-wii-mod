@@ -35,9 +35,16 @@ def prepare() -> None:
         git(DECOMP, "worktree", "add", "--detach", str(WORK), head)
     elif stamp.is_file() and stamp.read_text() == state:
         return
+    local = git(WORK, "diff", check=False).stdout if (WORK / ".git").exists() else ""
     git(WORK, "reset", "-q", "--hard", head)
     git(WORK, "apply", "--index", *PATCHES)
     stamp.write_text(state)
+    if local.strip():
+        # edits someone made in the working copy since it was last patched: put them back on top
+        keep = ROOT / "build" / "local-edits.patch"
+        keep.write_text(local)
+        applied = subprocess.run(["git", "apply", "--3way", str(keep)], cwd=WORK).returncode == 0
+        print(f"build/decomp had local edits, {'put back' if applied else 'NOT put back'}; a copy is in {keep}")
 
 
 def link_discs() -> None:

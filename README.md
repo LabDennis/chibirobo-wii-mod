@@ -10,7 +10,7 @@ One build, no options. What is in it:
   Wii's system language. The text and the textures with writing on them are generated from your own
   GameCube discs at build time.
 - A first screen of its own in place of the Wii Remote strap pages: "Press A on your controller",
-  drawn with the game's font and the loading bar's sprites from your disc.
+  drawn with the game's font over its diagonal stripes, both taken from your disc.
 - The first A press there picks the controls: on a GameCube controller the GameCube controls, on
   the Wii Remote the Wii controls.
 

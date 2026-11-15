@@ -2097,10 +2097,10 @@ index 00000000..1f3aeafa
 +    unittest.main()
 diff --git a/tools/test_wii_lang_data.py b/tools/test_wii_lang_data.py
 new file mode 100644
-index 00000000..192730f4
+index 00000000..2d94474d
 --- /dev/null
 +++ b/tools/test_wii_lang_data.py
-@@ -0,0 +1,763 @@
+@@ -0,0 +1,765 @@
 +#!/usr/bin/env python3
 +"""Unit tests for tools/wii_lang_data.py using synthetic scripts and files."""
 +
@@ -2849,17 +2849,19 @@ index 00000000..192730f4
 +
 +        white = bytes([255, 255, 255, 255])
 +        logo = _build_tpl([tex(640, 480, 4, white * (640 * 480)), tex(640, 480, 4, white * (640 * 480)), tex(16, 16, 4, white * 256)])
-+        # misc.tpl needs the sprites the pages take: 119 the stripes, 131 and 133 the robot
-+        misc = _build_tpl([tex(16, 16, 0, white * 256) if i == 119 else tex(8, 8, 2, white * 64) for i in range(134)])
++        # misc.tpl needs the stripes the pages take, texture 119: its left half lit
++        half = (white * 8 + bytes(4) * 8) * 16
++        misc = _build_tpl([tex(16, 16, 0, half) if i == 119 else tex(8, 8, 2, white * 64) for i in range(120)])
 +
 +        out = parse_tpl_textures(press_a_tpl(logo, misc, ["AAA", "A"], metrics, bytes(atlas)))
 +        before = parse_tpl_textures(logo)
 +        self.assertEqual(out[2]["data"], before[2]["data"])
 +        pages = [bytes(_decode_tpl_pixels(bytes(t["data"]), 640, 480, 4)) for t in out[:2]]
 +        for page in pages:
-+            self.assertEqual(page[:4], b"\x00\x00\x00\xff")  # black background
-+            self.assertIn(white, [page[i : i + 4] for i in range(0, len(page), 4)])  # with the text on it
-+        self.assertNotEqual(pages[0], pages[1])  # the robot has moved on
++            pixels = {page[i : i + 4] for i in range(0, len(page), 4)}
++            self.assertIn(white, pixels)  # the text
++            self.assertIn(b"\x00\x00\x00\xff", pixels)  # between the stripes
++        self.assertNotEqual(pages[0], pages[1])  # the stripes have moved on
 +
 +
 +if __name__ == "__main__":
@@ -3424,10 +3426,10 @@ index 00000000..64be8d78
 +    main()
 diff --git a/tools/wii_lang_data.py b/tools/wii_lang_data.py
 new file mode 100644
-index 00000000..0ff93c76
+index 00000000..39564653
 --- /dev/null
 +++ b/tools/wii_lang_data.py
-@@ -0,0 +1,2587 @@
+@@ -0,0 +1,2592 @@
 +#!/usr/bin/env python3
 +"""Build per-language override files for Chibi-Robo! Wii (R24J01) from GC US/PAL discs."""
 +
@@ -4949,12 +4951,12 @@ index 00000000..0ff93c76
 +
 +
 +# The mod's first screen. The game shows textures 0 and 1 of logo.tpl (logow.tpl on a 16:9 screen) one after the
-+# other; in retail they are the Wii Remote strap warnings. The mod puts a plain sentence there over the look of
-+# the loading bar, drawn with the game's own font and sprites from the user's disc.
-+PRESS_A_WALK_FRAMES = (131, 133)  # misc.tpl: the robot's walk cycle is 131 to 134
-+PRESS_A_STRIPES = 119  # misc.tpl: the loading bar's fill
-+PRESS_A_BAR_COLOR = (0x9F, 0xFA, 0x1C)  # the colour the game draws the fill in
-+PRESS_A_PROGRESS = (0.35, 0.7)  # how far the robot is on each of the two pages
++# other; in retail they are the Wii Remote strap warnings. The mod puts a plain sentence there over the diagonal
++# stripes of the game's screen wipe, drawn with the game's own font and stripe texture from the user's disc.
++PRESS_A_STRIPES = 119  # misc.tpl: the diagonal stripes, 16x16 and repeating
++PRESS_A_STRIPE_SCALE = 6
++PRESS_A_STRIPE_COLOR = (40, 40, 40)
++PRESS_A_SHIFT = (0.0, 0.5)  # the second page's stripes sit half a period on, a step of the wipe's scroll
 +
 +
 +def _draw_dol_text_centered(
@@ -4979,40 +4981,51 @@ index 00000000..0ff93c76
 +        x += gw * scale
 +
 +
++def _stripe_slope(stripes: Image.Image) -> float:
++    """How far the stripes move to the right from one row of the texture to the next: the straight line that
++    fits all rows best."""
++    w, h = stripes.size
++    px = list(stripes.getdata())
++
++    def error(slope: float) -> int:
++        return sum(abs(px[y * w + x] - px[(x - round(slope * y)) % w]) for y in range(h) for x in range(w))
++
++    return min((k / 24 for k in range(-48, 49)), key=error)
++
++
 +def render_press_a_image(
 +    w: int,
 +    h: int,
 +    lines: Sequence[str],
 +    metrics: Sequence[Tuple[int, int, int]],
 +    atlas_rgba: bytes,
-+    robot: Image.Image,
 +    stripes: Image.Image,
-+    progress: float,
++    shift: float,
 +) -> bytes:
-+    """One page: `lines` centred above the loading bar, the robot `progress` (0 to 1) of the way along it."""
++    """One page: `lines` centred on the stripes, which start `shift` of a period to the right."""
++    lum = stripes.split()[0]
++    # The game shows one row of this texture at a time and its bottom edge does not meet its top edge, so the
++    # field is drawn from the top row alone, moved on from line to line by the texture's own slope
++    period = lum.width * PRESS_A_STRIPE_SCALE
++    strip = Image.new("L", (lum.width * 3, 1))
++    for i in range(3):
++        strip.paste(lum.crop((0, 0, lum.width, 1)), (i * lum.width, 0))
++    strip = strip.resize((period * 3, 1), Image.Resampling.BICUBIC).crop((period, 0, period * 2, 1))
++    slope = _stripe_slope(lum)
++    field = Image.new("L", (w, h))
++    for y in range(h):
++        for x in range(round(slope * y + shift * period) % period - period, w, period):
++            field.paste(strip, (x, y))
 +    img = Image.new("RGBA", (w, h), (0, 0, 0, 255))
++    img.paste(Image.new("RGBA", (w, h), (*PRESS_A_STRIPE_COLOR, 255)), (0, 0), field)
++
 +    atlas_img = Image.frombytes("RGBA", (512, 512), atlas_rgba)
-+    y = h * 0.36
-+    for i, text in enumerate(lines):
-+        scale = 1.25 if i == 0 else 0.85
-+        # shrink a line that would not fit the 4:3 picture's safe width
-+        scale = min(scale, 560 / max(1, _measure_dol_text_width(text, metrics)))
++    # shrink a line that would not fit the 4:3 picture's safe width
++    scales = [min(1.25 if i == 0 else 0.85, 560 / max(1, _measure_dol_text_width(text, metrics))) for i, text in enumerate(lines)]
++    y = (h - sum(24 * scale * 1.6 for scale in scales)) / 2
++    for i, (text, scale) in enumerate(zip(lines, scales)):
 +        _draw_dol_text_centered(img, atlas_img, metrics, text, w / 2, y, scale, (255, 255, 255) if i == 0 else (190, 190, 190))
 +        y += 24 * scale * 1.6
-+
-+    bar_w, bar_h = 300, 10
-+    left, top = (w - bar_w) // 2, round(h * 0.84)
-+    fill = round(bar_w * progress)
-+    tile = Image.new("RGBA", stripes.size, (*PRESS_A_BAR_COLOR, 255))
-+    tile.putalpha(stripes.split()[0])
-+    for x in range(0, fill, tile.width):
-+        piece = tile.crop((0, 0, min(tile.width, fill - x), min(tile.height, bar_h)))
-+        img.alpha_composite(piece, (left + x, top))
-+    ImageDraw.Draw(img).rectangle((left - 2, top - 2, left + bar_w + 1, top + bar_h + 1), outline=(200, 200, 200, 255))
-+    # the game draws him mirrored, at 0.8 of his size, walking along the bar
-+    sprite = robot.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
-+    sprite = sprite.resize((round(sprite.width * 0.8), round(sprite.height * 0.8)), Image.Resampling.LANCZOS)
-+    img.alpha_composite(sprite, (left + fill - sprite.width // 2, top - sprite.height + 4))
 +    return img.tobytes()
 +
 +
@@ -5029,21 +5042,15 @@ index 00000000..0ff93c76
 +    texs = parse_tpl_textures(wii_tpl)
 +    if len(texs) < 2:
 +        raise ValueError(f"Expected at least 2 textures in the logo TPL, got {len(texs)}")
-+    misc = parse_tpl_textures(misc_tpl)
-+
-+    def sprite(index: int) -> Image.Image:
-+        t = misc[index]
-+        size = (int(t["width"]), int(t["height"]))
-+        px = _decode_tpl_pixels(bytes(t["data"]), size[0], size[1], int(t["fmt"]), t.get("pal_fmt"), t.get("pal_data"))  # type: ignore[arg-type]
-+        return Image.frombytes("RGBA", size, bytes(px))
++    t = parse_tpl_textures(misc_tpl)[PRESS_A_STRIPES]
++    size = (int(t["width"]), int(t["height"]))
++    stripes = Image.frombytes("RGBA", size, bytes(_decode_tpl_pixels(bytes(t["data"]), size[0], size[1], int(t["fmt"]))))
 +
 +    out_texs = [dict(t) for t in texs]
 +    for idx in (0, 1):
 +        t = out_texs[idx]
 +        w, h, fmt = int(t["width"]), int(t["height"]), int(t["fmt"])
-+        rgba = render_press_a_image(
-+            w, h, lines, font_metrics, font_atlas_rgba, sprite(PRESS_A_WALK_FRAMES[idx]), sprite(PRESS_A_STRIPES), PRESS_A_PROGRESS[idx]
-+        )
++        rgba = render_press_a_image(w, h, lines, font_metrics, font_atlas_rgba, stripes, PRESS_A_SHIFT[idx])
 +        if preview_dir is not None:
 +            preview_dir.mkdir(parents=True, exist_ok=True)
 +            Image.frombytes("RGBA", (w, h), rgba).save(preview_dir / f"{preview_prefix}_{idx}.png")

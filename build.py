@@ -6,6 +6,7 @@ decomp/orig/<ID>/ first: R24J01, and GGTE01, GGTP01 and GGTJ01_01, which the lan
 copy of the decomp is a git worktree of the submodule's commit at build/decomp.
 """
 
+import hashlib
 import subprocess
 import sys
 from pathlib import Path
@@ -24,13 +25,17 @@ def git(cwd: Path, *args: str, check: bool = True) -> subprocess.CompletedProces
 
 def prepare() -> None:
     head = git(DECOMP, "rev-parse", "HEAD").stdout.strip()
+    # what the working copy is made from. While that stays the same the copy is left alone: ninja rebuilds
+    # nothing, and edits made in it (to try something before it goes into a patch) survive
+    state = head + "".join(hashlib.sha1(Path(p).read_bytes()).hexdigest() for p in PATCHES)
+    stamp = ROOT / "build" / "decomp.state"
     if not (WORK / ".git").exists():
         git(DECOMP, "worktree", "add", "--detach", str(WORK), head)
-    elif git(WORK, "rev-parse", "HEAD").stdout.strip() == head and \
-            git(WORK, "apply", "--check", "--reverse", "--index", *PATCHES, check=False).returncode == 0:
-        return  # already patched: keep the files' timestamps, so ninja rebuilds nothing
+    elif stamp.is_file() and stamp.read_text() == state:
+        return
     git(WORK, "reset", "-q", "--hard", head)
     git(WORK, "apply", "--index", *PATCHES)
+    stamp.write_text(state)
 
 
 def link_discs() -> None:

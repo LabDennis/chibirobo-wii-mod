@@ -9,6 +9,8 @@ One build, no options. What is in it:
 - All languages: the game in Japanese, English, German, French, Spanish or Italian, following the
   Wii's system language. The text and the textures with writing on them are generated from your own
   GameCube discs at build time.
+- The title logo of the US or European release, taken from your GameCube disc, where the game
+  runs in one of their languages.
 - A first screen of its own in place of the Wii Remote strap pages: "Press A on your controller",
   drawn with the game's font over its diagonal stripes, both taken from your disc.
 - The disc image carries no region (code 3 instead of Japan), so that Dolphin does not switch the

@@ -2105,10 +2105,10 @@ index 00000000..1f3aeafa
 +    unittest.main()
 diff --git a/tools/test_wii_lang_data.py b/tools/test_wii_lang_data.py
 new file mode 100644
-index 00000000..2d94474d
+index 00000000..2112ee3c
 --- /dev/null
 +++ b/tools/test_wii_lang_data.py
-@@ -0,0 +1,765 @@
+@@ -0,0 +1,831 @@
 +#!/usr/bin/env python3
 +"""Unit tests for tools/wii_lang_data.py using synthetic scripts and files."""
 +
@@ -2229,7 +2229,7 @@ index 00000000..2d94474d
 +
 +
 +class TestWiiLangData(unittest.TestCase):
-+    def test_relocate_offsets_on_longer_and_shorter_messages(self) -> None:
++    def test_messages_of_another_length_move_nothing(self) -> None:
 +        wii_bin = _build_stage_bin(lambda b: _make_two_slot_script(b"JP0", b"JP_LONG_ONE", base=b))
 +        tgt_bin = _build_stage_bin(
 +            lambda b: _make_two_slot_script(b"MUCH_LONGER_ENGLISH_0", b"S1", base=b)
@@ -2240,20 +2240,22 @@ index 00000000..2d94474d
 +        self.assertEqual(stats["translated_messages"], 2)
 +        self.assertEqual(stats["untranslated_messages"], 0)
 +
-+        # Re-parse relocated binary and check all offsets & messages
++        # the walk from the entry points now finds the new messages, through the GOTOs
 +        _, ent = extract_script_entries(out_bin, is_globals=False)
-+        _, jumps, addr_ofs, msgs = parse_script_from(out_bin, list(ent.values()), 0)
-+        self.assertEqual([out_bin[m[3]:m[4]] for m in msgs], [b"MUCH_LONGER_ENGLISH_0", b"S1"])
++        _, _, _, msgs = parse_script_from(out_bin, list(ent.values()), 0)
++        self.assertEqual(sorted(out_bin[m[3]:m[4]] for m in msgs), sorted([b"MUCH_LONGER_ENGLISH_0", b"S1"]))
 +
-+        # s1 shifted by (+18 - 9) = +9? Let's verify exact delta from wii_bin:
-+        delta0 = len(b"MUCH_LONGER_ENGLISH_0") - len(b"JP0")
-+        hdr_wii = struct.unpack_from("<13I", wii_bin, 0)
-+        hdr_out = struct.unpack_from("<13I", out_bin, 0)
-+        self.assertEqual(hdr_out[3], hdr_wii[3] + delta0)
-+        # ADDRESS_OF target (ret_label) sits after msg0, so it also shifted by delta0
-+        self.assertEqual(len(addr_ofs), 1)
-+        addr_val = struct.unpack_from("<I", out_bin, addr_ofs[0])[0]
-+        self.assertEqual(out_bin[addr_val], 2)  # points to RETURN
++        # nothing of the original file moved: only the two messages' first five bytes differ, a GOTO each
++        _, _, _, old_msgs = parse_script_from(wii_bin, list(ent.values()), 0)
++        heads = {off for m in old_msgs for off in range(m[0], m[0] + 5)}
++        changed = {i for i in range(len(wii_bin)) if out_bin[i] != wii_bin[i]}
++        self.assertTrue(changed and changed <= heads)
++        for (old_start, _, _, _, old_end), (new_start, _, _, _, new_end) in zip(old_msgs, msgs):
++            self.assertEqual(out_bin[old_start], 3)
++            self.assertEqual(struct.unpack_from("<I", out_bin, old_start + 1)[0], new_start)
++            # behind the new message a GOTO back to where the old instruction ended
++            self.assertEqual(out_bin[new_end], 3)
++            self.assertEqual(struct.unpack_from("<I", out_bin, new_end + 1)[0], old_end)
 +
 +    def test_jp_match_required_and_ambiguous_fallback(self) -> None:
 +        wii_bin = _build_stage_bin(lambda b: _make_two_slot_script(b"WII_SAME", b"WII_CHANGED", base=b))
@@ -2267,7 +2269,7 @@ index 00000000..2d94474d
 +
 +        _, ent = extract_script_entries(out_bin, is_globals=False)
 +        _, _, _, msgs = parse_script_from(out_bin, list(ent.values()), 0)
-+        self.assertEqual([out_bin[m[3]:m[4]] for m in msgs], [b"TRANS_0", b"WII_CHANGED"])
++        self.assertEqual(sorted(out_bin[m[3]:m[4]] for m in msgs), sorted([b"TRANS_0", b"WII_CHANGED"]))
 +
 +    def test_ambiguous_run_conflict_stays_japanese(self) -> None:
 +        # Two slots s0 and s1 both RUN the same shared subroutine, but in target_bin
@@ -2328,7 +2330,7 @@ index 00000000..2d94474d
 +        self.assertEqual(stats["untranslated_indices"], [2])
 +        _, ent = extract_script_entries(out_bin, is_globals=False)
 +        _, _, _, msgs = parse_script_from(out_bin, list(ent.values()), 0)
-+        self.assertEqual([out_bin[m[3]:m[4]] for m in msgs], [b"EN_A", b"EN_B", b"ONLY_WII"])
++        self.assertEqual(sorted(out_bin[m[3]:m[4]] for m in msgs), sorted([b"EN_A", b"EN_B", b"ONLY_WII"]))
 +
 +    def test_globals_bin_tables_and_scripts(self) -> None:
 +        def make_globals(item_name: bytes, msg_bytes: bytes) -> bytes:
@@ -2374,7 +2376,7 @@ index 00000000..2d94474d
 +        self.assertEqual(out_coll, b"\xAA\xBB\xCC\xDD")
 +        _, ent = extract_script_entries(out_g, is_globals=True)
 +        _, _, _, msgs = parse_script_from(out_g, list(ent.values()), 0x18 + hdr[4])
-+        self.assertEqual([out_g[m[3]:m[4]] for m in msgs], [b"LONG_ENGLISH_SCRIPT_MSG"])
++        self.assertEqual(sorted(out_g[m[3]:m[4]] for m in msgs), sorted([b"LONG_ENGLISH_SCRIPT_MSG"]))
 +
 +    def test_tpl_header_and_validation(self) -> None:
 +        # 1 texture: 64x32, fmt=5
@@ -2427,7 +2429,7 @@ index 00000000..2d94474d
 +        hdr = struct.unpack_from("<6I", out_g, 0)
 +        _, ent = extract_script_entries(out_g, is_globals=True)
 +        _, _, _, msgs = parse_script_from(out_g, list(ent.values()), 0x18 + hdr[4])
-+        self.assertEqual([out_g[m[3]:m[4]] for m in msgs], [b"EN0", b"JP_DEL", b"EN2_LONGER", b"EN3"])
++        self.assertEqual(sorted(out_g[m[3]:m[4]] for m in msgs), sorted([b"EN0", b"JP_DEL", b"EN2_LONGER", b"EN3"]))
 +
 +    def test_tpl_format_conversion_and_mismatches(self) -> None:
 +        w, h = 8, 8
@@ -2870,6 +2872,70 @@ index 00000000..2d94474d
 +            self.assertIn(white, pixels)  # the text
 +            self.assertIn(b"\x00\x00\x00\xff", pixels)  # between the stripes
 +        self.assertNotEqual(pages[0], pages[1])  # the stripes have moved on
++
++    def test_title_tpl_aspect_fit_replaces_only_logo_and_preserves_aspect(self) -> None:
++        from tools.wii_lang_data import (
++            TITLE_TPL_TEXT_DECISIONS,
++            _decode_tpl_pixels,
++            _fit_rgba_aspect,
++            convert_tpl_textures_by_jp,
++        )
++
++        def tex(w: int, h: int, fmt: int, rgba: bytes) -> dict:
++            return {
++                "width": w, "height": h, "fmt": fmt, "wrap_s": 0, "wrap_t": 0,
++                "min_filter": 1, "mag_filter": 1, "lod_bias": 0.0, "edge_lod": 0,
++                "min_lod": 0, "max_lod": 0, "unpacked": 0,
++                "data": _encode_tpl_pixels(rgba, w, h, fmt), "pal_fmt": None, "pal_data": None,
++            }
++
++        red = bytes([255, 0, 0, 255])
++        blue = bytes([0, 128, 255, 255])
++        white = bytes([255, 255, 255, 255])
++        green = bytes([0, 255, 0, 255])
++
++        wii_b = _build_tpl([
++            tex(40, 20, 5, red * (40 * 20)),
++            tex(20, 8, 2, white * (20 * 8)),
++            tex(8, 8, 5, green * (8 * 8)),
++        ])
++        jp_b = _build_tpl([
++            tex(16, 8, 2, white * (16 * 8)),
++            tex(40, 20, 5, red * (40 * 20)),
++            tex(8, 8, 5, green * (8 * 8)),
++        ])
++        tgt_b = _build_tpl([
++            tex(40, 40, 5, blue * (40 * 40)),
++            tex(24, 8, 2, white * (24 * 8)),
++            tex(8, 8, 5, green * (8 * 8)),
++        ])
++
++        out_b, info = convert_tpl_textures_by_jp(
++            wii_b,
++            jp_b,
++            tgt_b,
++            text_wii_indices=TITLE_TPL_TEXT_DECISIONS,
++            explicit_target_map={0: 0},
++            allow_aspect_fit=True,
++        )
++        self.assertEqual(info["reencoded_indices"], [0])
++        self.assertEqual(info["replaced_indices"], [])
++        wii_texs = parse_tpl_textures(wii_b)
++        out_texs = parse_tpl_textures(out_b)
++        self.assertEqual((out_texs[0]["width"], out_texs[0]["height"], out_texs[0]["fmt"]), (40, 20, 5))
++        self.assertEqual(out_texs[1]["data"], wii_texs[1]["data"])
++        self.assertEqual(out_texs[2]["data"], wii_texs[2]["data"])
++
++        decoded = bytes(_decode_tpl_pixels(bytes(out_texs[0]["data"]), 40, 20, 5))
++        # 40x40 scaled to 40x20 preserving aspect -> 20x20 centered at x=10..29; x=0..9 and 30..39 are transparent
++        self.assertEqual(decoded[(10 * 40 + 2) * 4 + 3], 0)
++        self.assertEqual(decoded[(10 * 40 + 37) * 4 + 3], 0)
++        self.assertGreater(decoded[(10 * 40 + 20) * 4 + 3], 200)
++
++        fitted = _fit_rgba_aspect(blue * (400 * 188), 400, 188, 416, 135)
++        self.assertEqual(len(fitted), 416 * 135 * 4)
++        self.assertEqual(fitted[(67 * 416 + 0) * 4 + 3], 0)
++        self.assertEqual(fitted[(67 * 416 + 208) * 4 + 3], 255)
 +
 +
 +if __name__ == "__main__":
@@ -3436,10 +3502,10 @@ index 00000000..cad95d8e
 +    main()
 diff --git a/tools/wii_lang_data.py b/tools/wii_lang_data.py
 new file mode 100644
-index 00000000..39564653
+index 00000000..c5e73c80
 --- /dev/null
 +++ b/tools/wii_lang_data.py
-@@ -0,0 +1,2592 @@
+@@ -0,0 +1,2594 @@
 +#!/usr/bin/env python3
 +"""Build per-language override files for Chibi-Robo! Wii (R24J01) from GC US/PAL discs."""
 +
@@ -3968,59 +4034,32 @@ index 00000000..39564653
 +    return resolved
 +
 +
-+def relocate_bytecode_region(
-+    b: bytes,
-+    entries: Sequence[int],
-+    base_offset: int,
-+    replacements: Dict[int, bytes],
-+    extra_table_offsets: Sequence[int],
-+) -> bytes:
-+    """Apply message replacements to b[base_offset:] and relocate all offsets."""
-+    _, jumps, addr_ofs, msgs = parse_script_from(b, entries, base_offset, follow_run=True)
-+    msg_spans = []
-+    for _, _, _, m_start, m_end in msgs:
-+        if m_start in replacements and replacements[m_start] != b[m_start:m_end]:
-+            msg_spans.append((m_start, m_end, replacements[m_start]))
-+    msg_spans.sort(key=lambda x: x[0])
++EVT_GOTO = 3
 +
-+    if not msg_spans:
-+        return b
 +
-+    def reloc(old_abs: int) -> int:
-+        delta = 0
-+        for s, e, new_b in msg_spans:
-+            if e <= old_abs:
-+                delta += len(new_b) - (e - s)
-+            else:
-+                break
-+        return old_abs + delta
++def replace_messages(b: bytes, entries: Sequence[int], base_offset: int, replacements: Dict[int, bytes]) -> bytes:
++    """Put the replacement messages into the script region at b[base_offset:] without moving a byte of it.
 +
++    A message's text is part of its MSG/SELECT instruction, so a text of another length would move everything
++    behind it, and every jump target there would have to follow. The walk from the entry points does not reach
++    every script (about a third of a stage file is only reached at run time), so those targets cannot be found.
++    Instead such a message goes to the end of the file: its old instruction becomes a GOTO there, and behind the
++    new instruction a GOTO leads back to where the old one ended.
++    """
++    _, _, _, msgs = parse_script_from(b, entries, base_offset, follow_run=True)
 +    out = bytearray(b)
-+    # Relocate in-place on `out` BEFORE splicing bytes (offsets are still old offsets)
-+    for off in extra_table_offsets:
-+        val = struct.unpack_from("<I", out, off)[0]
-+        if val != 0:
-+            struct.pack_into("<I", out, off, reloc(base_offset + val) - base_offset)
-+
-+    for off in jumps:
-+        val = struct.unpack_from("<I", out, off)[0]
-+        if val != 0:
-+            struct.pack_into("<I", out, off, reloc(base_offset + val) - base_offset)
-+
-+    for off in addr_ofs:
-+        val = struct.unpack_from("<I", out, off)[0]
-+        if val != 0:
-+            struct.pack_into("<I", out, off, reloc(base_offset + val) - base_offset)
-+
-+    # Now splice replaced message spans
-+    rebuilt = bytearray()
-+    cursor = 0
-+    for s, e, new_b in msg_spans:
-+        rebuilt.extend(out[cursor:s])
-+        rebuilt.extend(new_b)
-+        cursor = e
-+    rebuilt.extend(out[cursor:])
-+    return bytes(rebuilt)
++    for cmd_off, cmd, _, m_start, m_end in msgs:
++        new = replacements.get(m_start)
++        if new is None or new == b[m_start:m_end]:
++            continue
++        if len(new) == m_end - m_start:
++            out[m_start:m_end] = new
++            continue
++        at = len(out)
++        out += bytes([cmd]) + struct.pack("<I", at + 5 + len(new) - base_offset) + new
++        out += bytes([EVT_GOTO]) + struct.pack("<I", m_end - base_offset)
++        out[cmd_off : cmd_off + 5] = bytes([EVT_GOTO]) + struct.pack("<I", at - base_offset)
++    return bytes(out)
 +
 +
 +def translate_stage_bin(
@@ -4045,18 +4084,7 @@ index 00000000..39564653
 +    untranslated_indices = [
 +        idx for idx, (_, _, _, m_start, _) in enumerate(wii_msgs) if m_start not in repl
 +    ]
-+    hdr = struct.unpack_from("<13I", wii_bytes, 0)
-+    table_offs: List[int] = [4 * hi for hi in range(3, 9) if hdr[hi] != 0]
-+    so_off = hdr[2]
-+    while True:
-+        val = struct.unpack_from("<I", wii_bytes, so_off)[0]
-+        if val == 0xFFFFFFFF:
-+            break
-+        if val != 0:
-+            table_offs.append(so_off)
-+        so_off += 4
-+
-+    new_bytes = relocate_bytecode_region(wii_bytes, list(ent_wii.values()), 0, repl, table_offs)
++    new_bytes = replace_messages(wii_bytes, list(ent_wii.values()), 0, repl)
 +    stats = {
 +        "total_messages": len(wii_msgs),
 +        "translated_messages": len(wii_msgs) - len(untranslated_indices),
@@ -4132,7 +4160,7 @@ index 00000000..39564653
 +                            new_data.extend(chosen)
 +                            new_data.append(0)
 +
-+    # Translate & relocate scripts section
++    # Translate the scripts section
 +    _, ent_wii = extract_script_entries(wii_bytes, is_globals=True)
 +    _, _, _, wii_msgs = parse_script_from(wii_bytes, list(ent_wii.values()), 0x18 + w_hdr[4], follow_run=True)
 +
@@ -4163,19 +4191,7 @@ index 00000000..39564653
 +    ]
 +
 +    scr_base = 0x18 + w_hdr[4]
-+    table_offs: List[int] = []
-+    i = 0
-+    first_nz = len(wii_bytes)
-+    while scr_base + i * 4 < first_nz:
-+        val = struct.unpack_from("<I", wii_bytes, scr_base + i * 4)[0]
-+        if val != 0:
-+            first_nz = min(first_nz, scr_base + val)
-+            table_offs.append(scr_base + i * 4)
-+        i += 1
-+
-+    relocated_full = relocate_bytecode_region(
-+        wii_bytes, list(ent_wii.values()), scr_base, repl, table_offs
-+    )
++    relocated_full = replace_messages(wii_bytes, list(ent_wii.values()), scr_base, repl)
 +    new_scripts = relocated_full[scr_base:]
 +    coll_bytes = wii_bytes[0x18 + w_hdr[2] : 0x18 + w_hdr[2] + w_hdr[3]]
 +
@@ -4706,6 +4722,26 @@ index 00000000..39564653
 +    224: (False, "Geraet/Pieper (ohne Rahmen): nur Farbaenderung (rot -> hellblau), kein Text"),
 +}
 +
++TITLE_TPL_TEXT_DECISIONS: Dict[int, Tuple[bool, str]] = {
++    0: (True, "Titel-Logo: japanisches 'ちびロボ！' -> westliches 'Chibi-Robo!' (mit Seitenverhaeltnis eingepasst)"),
++    1: (False, "Wii-Copyright-Zeile '(C)2005-2009 Nintendo': bereits englisch, neuere Wii-Jahreszahl behalten"),
++    2: (False, "Stecker-Ring-Icon: identisch in Wii/JP/US/PAL, kein Text"),
++}
++
++
++def _fit_rgba_aspect(rgba: bytes, src_w: int, src_h: int, dst_w: int, dst_h: int) -> bytes:
++    """Scale RGBA image to fit inside (dst_w, dst_h) without cropping, centered on transparent canvas."""
++    if src_w == dst_w and src_h == dst_h:
++        return rgba
++    scale = min(dst_w / src_w, dst_h / src_h)
++    new_w = max(1, min(dst_w, round(src_w * scale)))
++    new_h = max(1, min(dst_h, round(src_h * scale)))
++    src_img = Image.frombytes("RGBA", (src_w, src_h), rgba)
++    resized = src_img.resize((new_w, new_h), Image.Resampling.LANCZOS)
++    canvas = Image.new("RGBA", (dst_w, dst_h), (0, 0, 0, 0))
++    canvas.paste(resized, ((dst_w - new_w) // 2, (dst_h - new_h) // 2))
++    return canvas.tobytes()
++
 +
 +def _render_misc_preview(
 +    preview_path: Path,
@@ -4714,8 +4750,11 @@ index 00000000..39564653
 +    """Save side-by-side overview PNG (Wii, GC-JP, Result) for replaced/skipped textures."""
 +    if not rows:
 +        return
-+    row_h = 84
-+    canvas = Image.new("RGBA", (920, len(rows) * row_h), (36, 36, 36, 255))
++    max_w = max(max(row[4][0], row[5][0], row[6][0]) for row in rows)
++    max_h = max(max(row[4][1], row[5][1], row[6][1]) for row in rows)
++    col_w = max(220, max_w + 16)
++    row_h = max(84, max_h + 16)
++    canvas = Image.new("RGBA", (max(920, 240 + col_w * 3), len(rows) * row_h), (36, 36, 36, 255))
 +    draw = ImageDraw.Draw(canvas)
 +    for idx, (wi, ji, ti, label, w_im, j_im, r_im) in enumerate(rows):
 +        y = idx * row_h + 6
@@ -4725,7 +4764,7 @@ index 00000000..39564653
 +            scale = max(1, min(2, 64 // max(1, rh)))
 +            if scale > 1:
 +                im = im.resize((rw * scale, rh * scale), Image.Resampling.NEAREST)
-+            canvas.paste(im, (240 + col_i * 220, y), im)
++            canvas.paste(im, (240 + col_i * col_w, y), im)
 +    preview_path.parent.mkdir(parents=True, exist_ok=True)
 +    canvas.save(preview_path)
 +
@@ -4738,6 +4777,8 @@ index 00000000..39564653
 +    min_margin: float = 2.0,
 +    text_wii_indices: Optional[Dict[int, Tuple[bool, str]]] = None,
 +    preview_path: Optional[Path] = None,
++    explicit_target_map: Optional[Dict[int, int]] = None,
++    allow_aspect_fit: bool = False,
 +) -> Tuple[bytes, Dict[str, object]]:
 +    """Map Wii TPL textures to target TPL via GC-JP reference and replace differing text ones."""
 +    w_texs = parse_tpl_textures(wii_tpl)
@@ -4835,7 +4876,9 @@ index 00000000..39564653
 +        ji = wii_to_jp.get(wi)
 +        if ji is None:
 +            continue
-+        ti = jp_to_tgt.get(ji)
++        ti = explicit_target_map.get(wi) if explicit_target_map is not None else None
++        if ti is None:
++            ti = jp_to_tgt.get(ji)
 +        if ti is None:
 +            skipped.append({"wii_index": wi, "jp_index": ji, "reason": "no_target_match"})
 +            continue
@@ -4856,16 +4899,31 @@ index 00000000..39564653
 +                preview_rows.append((wi, ji, ti, "SKIP non-text", (ww, wh, wrgba), (j_dec[ji][0], j_dec[ji][1], jrgba), (ww, wh, wrgba)))
 +                continue
 +        if ww != tw or wh != th:
-+            skipped.append(
-+                {
-+                    "wii_index": wi,
-+                    "jp_index": ji,
-+                    "target_index": ti,
-+                    "reason": "dimension_mismatch",
-+                    "wii": [ww, wh],
-+                    "target": [tw, th],
-+                }
-+            )
++            if not allow_aspect_fit:
++                skipped.append(
++                    {
++                        "wii_index": wi,
++                        "jp_index": ji,
++                        "target_index": ti,
++                        "reason": "dimension_mismatch",
++                        "wii": [ww, wh],
++                        "target": [tw, th],
++                    }
++                )
++                continue
++            if w_fmt not in (0, 1, 2, 3, 4, 5, 6, 14):
++                skipped.append(
++                    {"wii_index": wi, "jp_index": ji, "reason": "unsupported_wii_format", "wii_fmt": w_fmt}
++                )
++                continue
++            fitted_rgba = _fit_rgba_aspect(trgba, tw, th, ww, wh)
++            enc = _encode_tpl_pixels(fitted_rgba, ww, wh, w_fmt)
++            out_texs[wi]["data"] = enc
++            out_texs[wi]["pal_fmt"] = None
++            out_texs[wi]["pal_data"] = None
++            reencoded_indices.append(wi)
++            res_rgba = bytes(_decode_tpl_pixels(enc, ww, wh, w_fmt))
++            preview_rows.append((wi, ji, ti, "REPLACED (text, fit)", (ww, wh, wrgba), (j_dec[ji][0], j_dec[ji][1], jrgba), (ww, wh, res_rgba)))
 +            continue
 +        tt = t_texs[ti]
 +        if w_fmt == t_fmt and wt["pal_fmt"] == tt["pal_fmt"]:
@@ -5910,12 +5968,22 @@ index 00000000..39564653
 +            if converted_b is None and jp_tpl_dir is not None:
 +                jp_tpl_path = jp_tpl_dir / name
 +                if jp_tpl_path.exists():
++                    tex_kwargs: Dict[str, object] = {}
++                    if name == "misc.tpl":
++                        tex_kwargs["text_wii_indices"] = MISC_TPL_TEXT_DECISIONS
++                        if preview_dir is not None:
++                            tex_kwargs["preview_path"] = preview_dir / f"misc_{code}.png"
++                    elif name == "title.tpl":
++                        tex_kwargs["text_wii_indices"] = TITLE_TPL_TEXT_DECISIONS
++                        tex_kwargs["explicit_target_map"] = {0: 0}
++                        tex_kwargs["allow_aspect_fit"] = True
++                        if preview_dir is not None:
++                            tex_kwargs["preview_path"] = preview_dir / f"title_{code}.png"
 +                    tex_b, tex_info = convert_tpl_textures_by_jp(
 +                        wii_b,
 +                        jp_tpl_path.read_bytes(),
 +                        tgt_b,
-+                        text_wii_indices=MISC_TPL_TEXT_DECISIONS if name == "misc.tpl" else None,
-+                        preview_path=(preview_dir / f"misc_{code}.png") if (preview_dir is not None and name == "misc.tpl") else None,
++                        **tex_kwargs,
 +                    )
 +                    tpl_details[rel_path] = tex_info
 +                    if tex_b != wii_b:
